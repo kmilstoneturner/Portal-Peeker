@@ -1,0 +1,7 @@
+{
+  "name": "@portal-peeker/capture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MAIN-world interceptor and isolated-world bridge. Shared by the free and pro builds."
+}

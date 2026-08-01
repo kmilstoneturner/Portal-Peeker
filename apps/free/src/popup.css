@@ -1,0 +1,197 @@
+:root {
+  --bg: #ffffff;
+  --fg: #33475b;
+  --muted: #7c98b6;
+  --line: #dfe3eb;
+  --accent: #00bda5;
+  --accent-ink: #00423a;
+  --warn-bg: #fef8f0;
+  --warn-line: #f5c26b;
+  --warn-ink: #7c5601;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 340px;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.head h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.kind {
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #e5f8f6;
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.empty {
+  padding: 22px 14px;
+  text-align: center;
+}
+
+.empty-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.empty-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rows {
+  margin: 0;
+  padding: 6px 14px 2px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 0;
+}
+
+.row dt {
+  flex: 0 0 74px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.row dd {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.note {
+  margin: 8px 14px 0;
+  padding: 7px 9px;
+  border: 1px solid var(--warn-line);
+  border-radius: 5px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: 12px;
+}
+
+/* Old value, kept visible next to the new one so the effect of the toggle is
+   legible at a glance rather than something you infer. */
+.was {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.options {
+  margin: 10px 14px 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.check + .check {
+  margin-top: 6px;
+}
+
+.check input {
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
+/* Stripping HTML is a transformation, not a subtraction, so it is only
+   available on top of a trim. Raw output stays byte-identical, always. */
+.check.sub {
+  margin-left: 18px;
+}
+
+.check.is-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.actions {
+  display: flex;
+  gap: 7px;
+  padding: 12px 14px 4px;
+}
+
+.btn {
+  flex: 1 1 0;
+  padding: 7px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.status {
+  min-height: 16px;
+  margin: 6px 14px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status.error {
+  color: #c0392b;
+}
+
+body {
+  padding-bottom: 12px;
+}

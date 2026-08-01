@@ -1,0 +1,25 @@
+{
+  "name": "portal-peeker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Chrome extension for HubSpot admins: capture, inspect, and diff the JSON behind HubSpot workflows.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "build:free": "node tools/build.mjs",
+    "check:no-network": "node tools/check-no-network.mjs",
+    "check:no-portal-data": "node tools/check-no-portal-data.mjs",
+    "pretest": "node tools/build.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run build && npm run check:no-network && npm run check:no-portal-data && npm run test"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

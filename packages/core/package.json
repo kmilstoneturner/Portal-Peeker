@@ -1,0 +1,11 @@
+{
+  "name": "@portal-peeker/core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure normalization, summary, and (later) diff. No chrome.*, no DOM, no network.",
+  "main": "src/summary.js",
+  "exports": {
+    ".": "./src/summary.js"
+  }
+}

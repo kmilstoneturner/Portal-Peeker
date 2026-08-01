@@ -1,0 +1,259 @@
+{
+  "flowType": "Workflow",
+  "uuid": "00000000-0000-4000-8000-00000000cafe",
+  "name": "Synthetic: every trim rule and every retraction",
+  "isEnabled": true,
+  "firstActionId": 1,
+  "flowObjectType": "CONTACT",
+  "objectTypeId": "0-1",
+  "enrolledType": { "objectTypeId": "0-1", "type": "CRM_OBJECT" },
+  "triggers": null,
+  "triggerTypeId": null,
+  "enrollmentDataset": null,
+  "scheduledDisableAt": null,
+  "portalId": 111111111,
+  "flowId": 2222222222,
+  "isClassicWorkflow": true,
+  "nextAvailableActionId": 7,
+  "version": 9,
+  "enrollmentTrigger": "LIST",
+  "createMetadata": {
+    "updatedBy": { "userId": 5550001, "hubspotterId": null, "hubspotterUsername": null },
+    "updatedAt": 1780000000000,
+    "referrer": null,
+    "originRequestId": "synthetic-origin",
+    "sourceApp": "WORKFLOWS_APP",
+    "templateMetadata": { "templateId": 777 },
+    "aiAssistanceMetadata": null
+  },
+  "updateMetadata": {
+    "updatedBy": { "userId": 5550002, "hubspotterId": null, "hubspotterUsername": null },
+    "updatedAt": 1780000900000,
+    "referrer": "https://app.hubspot.com/workflows/111111111/platform/flow/2222222222/edit/actions/new-action/delay",
+    "originRequestId": null,
+    "integrationId": null,
+    "jobName": null,
+    "internalJobUpdateTime": null,
+    "sourceApp": "WORKFLOWS_APP",
+    "cloneMetadata": null,
+    "templateMetadata": null,
+    "aiAssistanceMetadata": null
+  },
+  "actions": {
+    "1": {
+      "actionId": 1,
+      "portalId": 111111111,
+      "flowId": 2222222222,
+      "flowVersion": 4,
+      "rateLimit": null,
+      "actionType": "IN_APP_NOTIFICATION",
+      "actionTypeId": "0-9",
+      "metadata": {
+        "actionType": "IN_APP_NOTIFICATION",
+        "objectRequestOptions": null,
+        "userIds": [],
+        "teamIds": [],
+        "ownerProperties": [],
+        "userIdsAndOwnerProperties": [],
+        "excludeNonDefaultTeamMembers": true,
+        "subject": "Structured body",
+        "body": "<div style=\"color:#333\"><p>Hello <strong>{{ contact.firstname }}</strong>,</p><ul><li>First step</li><li>Second step</li></ul><p>See <a href=\"https://example.invalid/doc\">the doc</a> &amp; reply.</p></div>",
+        "nestedConfig": { "innerEmptyList": [], "innerNull": null, "keepMe": "yes" }
+      },
+      "connection": { "nextActionId": 2, "edgeType": "STANDARD", "connectionType": "SINGLE" }
+    },
+    "2": {
+      "actionId": 2,
+      "portalId": 111111111,
+      "flowId": 2222222222,
+      "flowVersion": 5,
+      "actionType": "LIST_BRANCH",
+      "actionTypeId": "0-7",
+      "metadata": {
+        "actionType": "LIST_BRANCH",
+        "inputValueFields": [
+          {
+            "fieldKey": "hs_flow_branch_action_connections",
+            "fieldValue": {
+              "value": "{\"listBranches\":[{\"listId\":18,\"filterBranch\":null,\"connection\":{\"nextActionId\":3,\"edgeType\":\"STANDARD\",\"connectionType\":\"SINGLE\"},\"branchName\":null,\"nextActionId\":3}],\"defaultConnection\":null,\"connectionType\":\"LIST_BRANCH\"}",
+              "type": "STATIC_VALUE"
+            },
+            "inputActionName": null
+          }
+        ]
+      },
+      "connection": {
+        "connectionType": "LIST_BRANCH",
+        "listBranches": [
+          {
+            "listId": 18,
+            "branchName": null,
+            "nextActionId": 3,
+            "filterBranch": {
+              "filterBranchOperator": "AND",
+              "filterBranchType": "ASSOCIATION",
+              "filters": [{ "filterType": "ASSOCIATION", "associationTypeId": 4, "filterInsightsId": null }],
+              "filterBranches": []
+            },
+            "connection": { "nextActionId": 3, "edgeType": "STANDARD", "connectionType": "SINGLE" }
+          },
+          {
+            "listId": 19,
+            "branchName": "Events branch",
+            "nextActionId": 99,
+            "filterBranch": {
+              "filterBranchOperator": "AND",
+              "filterBranchType": "UNIFIED_EVENTS",
+              "filters": [{ "filterType": "PROPERTY", "property": "hs_form_id" }],
+              "filterBranches": []
+            },
+            "connection": { "nextActionId": 4, "edgeType": "STANDARD", "connectionType": "SINGLE" }
+          }
+        ],
+        "defaultConnection": null,
+        "defaultBranchName": null
+      }
+    },
+    "3": {
+      "actionId": 3,
+      "portalId": 111111111,
+      "flowId": 2222222222,
+      "flowVersion": 5,
+      "actionType": "DELAY",
+      "actionTypeId": "0-1",
+      "metadata": {
+        "actionType": "DELAY",
+        "delay": { "unit": "DAYS", "value": 3 },
+        "inputValueFields": [
+          {
+            "fieldKey": "hs_flow_action_time_delay",
+            "fieldValue": { "value": "{\"value\":3,\"unit\":\"DAYS\"}", "type": "STATIC_VALUE" },
+            "inputActionName": null
+          }
+        ]
+      },
+      "connection": { "nextActionId": 4, "edgeType": "STANDARD", "connectionType": "SINGLE" }
+    },
+    "4": {
+      "actionId": 4,
+      "portalId": 111111111,
+      "flowId": 2222222222,
+      "flowVersion": 6,
+      "actionType": "DELAY",
+      "actionTypeId": "0-1",
+      "metadata": {
+        "delay": { "unit": "DAYS", "value": 3 },
+        "inputValueFields": [
+          {
+            "fieldKey": "hs_flow_action_time_delay",
+            "fieldValue": { "value": "{\"value\":9,\"unit\":\"HOURS\"}", "type": "STATIC_VALUE" },
+            "inputActionName": null
+          }
+        ]
+      },
+      "connection": { "nextActionId": 5, "edgeType": "STANDARD", "connectionType": "SINGLE" }
+    },
+    "5": {
+      "actionId": 5,
+      "portalId": 111111111,
+      "flowId": 2222222222,
+      "flowVersion": 6,
+      "actionType": "AUTOMATION_EXTENSION",
+      "actionTypeId": "0-177946906",
+      "metadata": {
+        "extensionInstance": { "definitionId": 4242, "name": "enrichment" },
+        "inputValueFields": [
+          {
+            "fieldKey": "object_to_enrich",
+            "fieldValue": { "value": "{\"type\":\"ENROLLED_OBJECT\"}", "type": "STATIC_VALUE" },
+            "inputActionName": null
+          },
+          {
+            "fieldKey": "bi_enrichment_overwrite",
+            "fieldValue": { "value": "true", "type": "STATIC_VALUE" },
+            "inputActionName": null
+          }
+        ]
+      },
+      "connection": { "nextActionId": 6, "edgeType": "STANDARD", "connectionType": "SINGLE" }
+    },
+    "6": {
+      "actionId": 6,
+      "portalId": 111111111,
+      "flowId": 2222222222,
+      "flowVersion": 6,
+      "actionType": "EMAIL_NOTIFICATION",
+      "actionTypeId": "0-8",
+      "metadata": {
+        "actionType": "SOMETHING_ELSE",
+        "userIds": [],
+        "subject": "Terminal",
+        "body": "plain text body with no markup at all"
+      },
+      "connection": null
+    }
+  },
+  "classicEnrollmentSettings": {
+    "eventAnchor": null,
+    "recurAnnually": false,
+    "reEnrollmentTriggerSets": [],
+    "suppressionListIds": [],
+    "unenrollmentSetting": { "excludedWorkflows": [] },
+    "workflowId": 88888888
+  },
+  "associatedLists": [
+    {
+      "portalId": 111111111,
+      "listId": 17,
+      "flowId": 2222222222,
+      "objectTypeId": "0-1",
+      "listTypes": ["ENROLLMENT_LIST"],
+      "filterBranch": {
+        "filters": [{ "filterType": "FORM_SUBMISSION", "formId": null }],
+        "filterBranchOperator": "OR",
+        "filterBranchType": "OR",
+        "filterBranches": []
+      }
+    },
+    {
+      "portalId": 111111111,
+      "listId": 21,
+      "flowId": 2222222222,
+      "objectTypeId": "0-1",
+      "listTypes": ["CLASSIC_GOAL_LIST"],
+      "filterBranch": {
+        "filterBranchOperator": "AND",
+        "filterBranchType": "AND",
+        "filters": [{ "filterType": "PROPERTY", "property": "lifecyclestage", "operation": "EQ", "value": "customer" }],
+        "filterBranches": []
+      }
+    }
+  ],
+  "flowEventFilters": [],
+  "enrollmentCriteria": {
+    "filterBranch": {
+      "filterBranchOperator": "OR",
+      "filterBranchType": "OR",
+      "filters": [{ "filterType": "FORM_SUBMISSION", "formId": null }],
+      "filterBranches": []
+    },
+    "reEnrollmentTriggers": [],
+    "objectTypeId": "0-1",
+    "triggerType": "LIST"
+  },
+  "dataSources": {
+    "dataSources": [
+      {
+        "flowId": 2222222222,
+        "portalId": 111111111,
+        "label": "",
+        "dataSourceId": 999000111,
+        "name": "fetched_object_999000111",
+        "createdAt": 1780000000000,
+        "updatedAt": 1780000900000,
+        "dataSourceDefinition": { "objectTypeId": "0-3", "dataSourceType": "FETCHED_OBJECT" }
+      }
+    ],
+    "dataSourcesType": "FETCHED_DATA_SOURCES"
+  }
+}
