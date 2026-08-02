@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Portal Peeker",
   "version": "1.0.0",
-  "description": "Capture and inspect the JSON behind HubSpot workflows. Makes no network calls.",
+  "description": "Capture, inspect, and export the JSON behind HubSpot workflows. No telemetry, no analytics, no third-party requests.",
   "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon-16.png",

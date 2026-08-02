@@ -4,7 +4,7 @@
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
-  "description": "The extension. hubspot.com only, no network calls.",
+  "description": "The extension. hubspot.com only, and no host but hubspot.com.",
   "scripts": {
     "build": "node ../tools/build.mjs"
   }

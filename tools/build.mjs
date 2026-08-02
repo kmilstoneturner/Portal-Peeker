@@ -57,6 +57,14 @@ const COPIES = [
   [`${CORE}/ui-numbers.js`, 'lib/ui-numbers.js'],
   [`${CORE}/ai-context.js`, 'lib/ai-context.js'],
   [MANIFEST, 'manifest.json'],
+  // Ships inside the package, not merely in the repo. Chrome Web Store
+  // Developer Agreement 5.2 grants every installer a perpetual worldwide
+  // licence to use the product UNLESS the product itself carries a EULA, which
+  // then governs "in lieu" of that grant. A LICENSE that stays in the repo is
+  // not in the product, so PolyForm Internal Use would simply be overridden for
+  // anyone who installs from the store. This one line is what keeps our terms
+  // the terms.
+  ['LICENSE', 'LICENSE'],
 ];
 
 // ---------------------------------------------------------------- helpers

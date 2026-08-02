@@ -3,8 +3,8 @@
 // A minimal PNG encoder: signature, IHDR, one zlib-deflated IDAT, IEND. Node's
 // zlib does the only hard part. This is here instead of a dependency because
 // the whole extension is meant to be readable end to end by anyone auditing
-// the "no network calls" claim, and a four-file icon pipeline is not worth an
-// npm package.
+// the "nothing but hubspot.com" claim, and a four-file icon pipeline is not
+// worth an npm package.
 
 import { deflateSync } from 'node:zlib';
 import { Buffer } from 'node:buffer';
@@ -88,7 +88,7 @@ function discCoverage(x, y, cx, cy, r) {
   return hits / 9;
 }
 
-export function renderIcon(size) {
+function renderTile(size) {
   const px = Buffer.alloc(size * size * 4);
   const radius = size * 0.22; // corner rounding
   const c = size / 2;
@@ -117,7 +117,37 @@ export function renderIcon(size) {
     }
   }
 
-  return encodePng(size, px);
+  return px;
+}
+
+export function renderIcon(size) {
+  return encodePng(size, renderTile(size));
+}
+
+/**
+ * The Chrome Web Store listing icon, which is a different asset from the
+ * toolbar icon and has a different spec: 128x128 overall, with the artwork
+ * confined to the middle 96x96 and 16px of transparency on every side. Chrome
+ * applies its own treatment to the toolbar icon, so full bleed is right there;
+ * the store applies none, so a full-bleed tile uploaded here just renders
+ * visibly larger and heavier than every item beside it.
+ *
+ * Written outside extension/dist deliberately. It is a listing asset and has no
+ * business inside the package.
+ */
+export function renderStoreIcon() {
+  const CANVAS = 128;
+  const ART = 96;
+  const PAD = (CANVAS - ART) / 2;
+
+  const tile = renderTile(ART);
+  const px = Buffer.alloc(CANVAS * CANVAS * 4); // zeroed, so fully transparent
+
+  for (let y = 0; y < ART; y++) {
+    tile.copy(px, ((y + PAD) * CANVAS + PAD) * 4, y * ART * 4, (y + 1) * ART * 4);
+  }
+
+  return encodePng(CANVAS, px);
 }
 
 export const ICON_SIZES = [16, 32, 48, 128];
