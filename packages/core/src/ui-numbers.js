@@ -27,8 +27,13 @@
 // connection shape or an action unreachable through STANDARD edges makes ok
 // false so the caller can withdraw the option, because a file where some cards
 // carry numbers and some do not looks complete while lying about the canvas.
+//
+// The annotation is an insertion into the text, never a re-serialization, so it
+// works on the raw capture as well as on trim output. That is what lets the
+// checkbox stand on its own rather than riding on top of the trim.
 
 import { findFlow } from './summary.js';
+import { spanAt, objectMembers, applyInsertions } from './json-span.js';
 
 const EMPTY = {
   ok: false,
@@ -170,19 +175,28 @@ export function uiNumbersFromText(rawText) {
 }
 
 /**
- * Append each action's editor number to a flow JSON text as a uiNumber field.
+ * Add each action's editor number to a flow JSON text as a uiNumber field.
  *
- * The target is the trimmed output, so this runs downstream of trim and is the
- * one step that makes the export a superset of what HubSpot sent: one appended
- * key per action, nothing else touched, original key order preserved. The
- * numbers still come from rawText.
+ * The annotation is inserted as text, one span per action, immediately before
+ * that action's closing brace. Every other byte of the target survives, so the
+ * target can be the raw capture just as safely as trim output: the export is a
+ * superset of what HubSpot sent, in the literal sense that the original bytes
+ * are all still in it, in order. Removing the inserted spans returns the input,
+ * and that is the test.
+ *
+ * Re-serializing was the obvious alternative and is quietly destructive on raw:
+ * JSON.stringify would drop the original whitespace, normalize numbers, and
+ * sort the actions map numerically, since its keys are action IDs.
+ *
+ * The numbers still come from rawText, whatever the target is.
  *
  * @param {string} rawText raw response body, the authority on the graph
- * @param {string} jsonText flow JSON to annotate, typically trim output
- * @returns {{ok: boolean, output: string|null, reason: string|null, count: number}}
+ * @param {string} jsonText flow JSON to annotate, raw or trim output
+ * @returns {{ok: boolean, output: string|null, reason: string|null, count: number,
+ *            insertions: Array<{at: number, text: string}>}}
  */
 export function addUiNumbers(rawText, jsonText) {
-  const refuse = (reason) => ({ ok: false, output: null, reason, count: 0 });
+  const refuse = (reason) => ({ ok: false, output: null, reason, count: 0, insertions: [] });
 
   const numbers = uiNumbersFromText(rawText);
   if (!numbers.ok) return refuse(numbers.reason);
@@ -194,13 +208,24 @@ export function addUiNumbers(rawText, jsonText) {
   } catch {
     return refuse('annotation target is not JSON');
   }
-  const actions = target && typeof target === 'object' ? target.actions : null;
+
+  const located = findFlow(target);
+  if (!located) return refuse('no flow object found in the annotation target');
+  const actions = located.flow.actions;
   if (!actions || typeof actions !== 'object' || Array.isArray(actions)) {
-    return refuse('annotation target is not a flow at the root');
+    return refuse('annotation target carries no actions map');
   }
 
-  let count = 0;
-  for (const [id, action] of Object.entries(actions)) {
+  const span = spanAt(jsonText, [...located.path, 'actions']);
+  if (!span) return refuse('could not locate the actions map in the annotation target');
+  const members = objectMembers(jsonText, span.start);
+  if (!members || members.length !== Object.keys(actions).length) {
+    return refuse('could not locate every action in the annotation target');
+  }
+
+  const insertions = [];
+  for (const member of members) {
+    const action = actions[member.key];
     if (!action || typeof action !== 'object') continue;
     if (Object.hasOwn(action, 'uiNumber')) {
       // Has never been observed in a payload. If HubSpot ever ships this key,
@@ -208,19 +233,29 @@ export function addUiNumbers(rawText, jsonText) {
       // impossible, so the only honest move is to step aside.
       return refuse('payload already carries a uiNumber field');
     }
-    const number = numbers.byActionId[id];
+    const number = numbers.byActionId[member.key];
     if (number == null) {
       // ok was true, so every raw action has a number. A target action the raw
       // graph has never heard of means the two texts are not the same capture.
-      return refuse(`action ${id} is not in the raw capture`);
+      return refuse(`action ${member.key} is not in the raw capture`);
     }
-    action.uiNumber = number;
-    count += 1;
+
+    const fields = objectMembers(jsonText, member.valueStart);
+    if (!fields) return refuse(`could not read action ${member.key} in the annotation target`);
+    // Inserted before the closing brace, so uiNumber is the last key and the
+    // original key order is untouched. An action with no fields at all takes
+    // no separating comma.
+    insertions.push({
+      at: member.valueEnd - 1,
+      text: `${fields.length ? ',' : ''}"uiNumber":${number}`,
+    });
   }
 
-  try {
-    return { ok: true, output: JSON.stringify(target), reason: null, count };
-  } catch {
-    return refuse('annotated flow would not serialize');
-  }
+  return {
+    ok: true,
+    output: applyInsertions(jsonText, insertions),
+    reason: null,
+    count: insertions.length,
+    insertions,
+  };
 }
