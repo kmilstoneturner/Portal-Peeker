@@ -25,6 +25,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ALLOWED_IDS = new Set([
   // synthetic/trim-cases
   111111111, 2222222222, 5550001, 5550002, 88888888, 177946906, 4242, 999000111,
+  // synthetic/ui-number-cases
+  3333333333,
   // synthetic captures, scrubbed from a trial portal
   12345678, 1000000001, 60000001, 70000001, 80000001, 80000002, 80000003,
   1780000000000, 1780000600000, 1780001200000, 1780000900000,

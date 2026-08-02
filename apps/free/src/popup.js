@@ -7,13 +7,14 @@
 // serves raw and only raw. That is what keeps the capture path parser-free: a
 // bug in the trim can cost an export, never a capture.
 //
-// The one preference this page owns (the two checkboxes) lives in localStorage
+// The preferences this page owns (the three checkboxes) live in localStorage
 // rather than chrome.storage, which keeps the extension at zero permissions.
 // Nothing about a capture is ever persisted anywhere.
 
 import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND } from './lib/protocol.js';
 import { summarize } from './lib/summary.js';
 import { trim, estimateTokens } from './lib/trim.js';
+import { uiNumbersFromText, addUiNumbers } from './lib/ui-numbers.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -36,10 +37,17 @@ const view = {
   refresh: el('refresh'),
   trim: el('opt-trim'),
   trimLabel: el('opt-trim-label'),
+  numbers: el('opt-numbers'),
+  numbersInfo: el('numbers-info'),
+  numbersTip: el('numbers-tip'),
   strip: el('opt-strip'),
 };
 
-const STORAGE = { trim: 'portal-peeker.trim', strip: 'portal-peeker.stripHtml' };
+const STORAGE = {
+  trim: 'portal-peeker.trim',
+  strip: 'portal-peeker.stripHtml',
+  numbers: 'portal-peeker.uiNumbers',
+};
 
 let tabId = null;
 let snapshot = null;
@@ -98,19 +106,50 @@ function trimFor(raw, stripHtml) {
   return variants.get(key);
 }
 
-/** What Copy and Download should actually emit, for a freshly pulled body. */
+/** Whether the open capture's graph can be numbered at all. */
+function numbersFor(raw) {
+  if (!variants.has('numbers')) variants.set('numbers', uiNumbersFromText(raw));
+  return variants.get('numbers');
+}
+
+/** Annotated variant of the trim preview, for the size and token rows. */
+function numberedFor(raw, stripHtml) {
+  const key = (stripHtml ? 'strip' : 'plain') + '-numbered';
+  if (!variants.has(key)) {
+    const base = trimFor(raw, stripHtml);
+    variants.set(key, base.ok ? addUiNumbers(raw, base.output) : { ok: false });
+  }
+  return variants.get(key);
+}
+
+const numbersWanted = () => view.numbers.checked && !view.numbers.disabled;
+
+/**
+ * What Copy and Download should actually emit, for a freshly pulled body.
+ * Returns { failed } instead of an export when a step refuses: shipping bytes
+ * under a suffix that promises something else would be worse than an error.
+ */
 function exportFor(raw) {
   if (!view.trim.checked) {
     return { text: raw, suffix: '', label: '' };
   }
   const stripHtml = view.strip.checked;
   const result = trim(raw, { stripHtml });
-  if (!result.ok) return null;
-  return {
-    text: result.output,
-    suffix: stripHtml ? '-trimmed-stripped' : '-trimmed',
-    label: stripHtml ? ' (trimmed, HTML stripped)' : ' (trimmed)',
-  };
+  if (!result.ok) return { failed: 'trim' };
+
+  let text = result.output;
+  const marks = stripHtml ? ['trimmed', 'stripped'] : ['trimmed'];
+  const labels = stripHtml ? ['trimmed', 'HTML stripped'] : ['trimmed'];
+
+  if (numbersWanted()) {
+    const numbered = addUiNumbers(raw, text);
+    if (!numbered.ok) return { failed: 'numbers' };
+    text = numbered.output;
+    marks.push('numbered');
+    labels.push('numbered');
+  }
+
+  return { text, suffix: `-${marks.join('-')}`, label: ` (${labels.join(', ')})` };
 }
 
 // ---------------------------------------------------------------- render
@@ -143,20 +182,45 @@ function renderSizes() {
     return;
   }
 
-  setDelta(view.size, num(rawBytes), num(preview.outputBytes), ' bytes');
-  setDelta(view.tokens, `~${num(rawTokens)}`, `~${num(estimateTokens(preview.output))}`);
+  // The rows show the export as configured, so numbering's small cost is
+  // included whenever the box is ticked.
+  let outputText = preview.output;
+  let outputBytes = preview.outputBytes;
+  if (numbersWanted()) {
+    const numbered = numberedFor(raw, view.strip.checked);
+    if (numbered.ok) {
+      outputText = numbered.output;
+      outputBytes = new TextEncoder().encode(numbered.output).length;
+    }
+  }
+
+  setDelta(view.size, num(rawBytes), num(outputBytes), ' bytes');
+  setDelta(view.tokens, `~${num(rawTokens)}`, `~${num(estimateTokens(outputText))}`);
 }
 
-function renderOptions(trimmable, reason) {
+function renderOptions(trimmable, reason, numbersCheck) {
   view.trim.disabled = !trimmable;
   view.trim.parentElement.classList.toggle('is-disabled', !trimmable);
   if (!trimmable) view.trim.checked = false;
 
-  // Stripping HTML rewrites values, so it is only offered on top of a trim.
-  // With the trim off, output is byte-identical to what HubSpot sent, always.
-  const stripAvailable = trimmable && view.trim.checked;
-  view.strip.disabled = !stripAvailable;
-  view.strip.parentElement.classList.toggle('is-disabled', !stripAvailable);
+  // Stripping HTML rewrites values and numbering appends uiNumber keys, so
+  // both ride on top of a trim. With the trim off, output is byte-identical
+  // to what HubSpot sent, always.
+  const onTopOfTrim = trimmable && view.trim.checked;
+  view.strip.disabled = !onTopOfTrim;
+  view.strip.parentElement.classList.toggle('is-disabled', !onTopOfTrim);
+
+  // Numbering can also be withdrawn on its own, when the graph has a shape the
+  // walker does not recognize. Withdrawn rather than partial: a file where
+  // some cards carry numbers and some do not looks complete while lying.
+  const numbersOk = Boolean(numbersCheck && numbersCheck.ok);
+  const numbersAvailable = onTopOfTrim && numbersOk;
+  view.numbers.disabled = !numbersAvailable;
+  view.numbers.parentElement.classList.toggle('is-disabled', !numbersAvailable);
+  view.numbers.parentElement.title =
+    trimmable && !numbersOk && numbersCheck
+      ? `Editor numbers unavailable: ${numbersCheck.reason}`
+      : '';
 
   return reason;
 }
@@ -178,7 +242,7 @@ function render(status) {
   view.when.textContent = formatWhen(status.capturedAt);
 
   const trimCheck = trimFor(status.raw, view.strip.checked);
-  renderOptions(trimCheck.ok, trimCheck.reason);
+  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(status.raw));
 
   if (summary.recognized && trimCheck.ok) {
     view.degraded.hidden = true;
@@ -248,6 +312,9 @@ function restoreOptions() {
   try {
     view.trim.checked = localStorage.getItem(STORAGE.trim) === 'true';
     view.strip.checked = localStorage.getItem(STORAGE.strip) === 'true';
+    // Numbers default on: only an explicit untick, stored as 'false', turns
+    // them off. Absent means checked, matching the markup.
+    view.numbers.checked = localStorage.getItem(STORAGE.numbers) !== 'false';
   } catch {
     // Private mode or blocked storage. Defaults are fine.
   }
@@ -257,6 +324,7 @@ function persistOptions() {
   try {
     localStorage.setItem(STORAGE.trim, String(view.trim.checked));
     localStorage.setItem(STORAGE.strip, String(view.strip.checked));
+    localStorage.setItem(STORAGE.numbers, String(view.numbers.checked));
   } catch {
     /* preference is not worth an error message */
   }
@@ -266,13 +334,47 @@ function onOptionChange() {
   persistOptions();
   if (!snapshot) return;
   const trimCheck = trimFor(snapshot.raw, view.strip.checked);
-  renderOptions(trimCheck.ok, trimCheck.reason);
+  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(snapshot.raw));
   renderSizes();
   say('');
 }
 
 view.trim.addEventListener('change', onOptionChange);
 view.strip.addEventListener('change', onOptionChange);
+view.numbers.addEventListener('change', onOptionChange);
+
+// ---------------------------------------------------------------- info tip
+
+// Hover previews the explanation, click pins it open (touch and keyboard have
+// no hover). The button sits inside the label, and an interactive descendant
+// of a label does not activate its control, so clicking it never toggles the
+// checkbox.
+let tipPinned = false;
+
+function showTip(open) {
+  view.numbersTip.hidden = !open;
+  view.numbersInfo.setAttribute('aria-expanded', String(open));
+}
+
+view.numbersInfo.addEventListener('click', (event) => {
+  event.stopPropagation();
+  tipPinned = !tipPinned;
+  showTip(tipPinned);
+});
+view.numbersInfo.addEventListener('mouseenter', () => showTip(true));
+view.numbersInfo.addEventListener('mouseleave', () => {
+  if (!tipPinned) showTip(false);
+});
+view.numbersInfo.addEventListener('focus', () => showTip(true));
+view.numbersInfo.addEventListener('blur', () => {
+  if (!tipPinned) showTip(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && tipPinned) {
+    tipPinned = false;
+    showTip(false);
+  }
+});
 
 // ---------------------------------------------------------------- actions
 
@@ -291,8 +393,13 @@ view.copy.addEventListener('click', async () => {
 
   // Trimmed from the freshly pulled body, never from a cached result.
   const output = exportFor(payload.raw);
-  if (!output) {
-    say('Could not trim this payload. Nothing was copied.', true);
+  if (output.failed) {
+    say(
+      output.failed === 'numbers'
+        ? 'Could not number this payload. Nothing was copied.'
+        : 'Could not trim this payload. Nothing was copied.',
+      true,
+    );
     return;
   }
 
@@ -315,14 +422,19 @@ view.download.addEventListener('click', async () => {
   if (!payload) return;
 
   const output = exportFor(payload.raw);
-  if (!output) {
-    say('Could not trim this payload. Nothing was saved.', true);
+  if (output.failed) {
+    say(
+      output.failed === 'numbers'
+        ? 'Could not number this payload. Nothing was saved.'
+        : 'Could not trim this payload. Nothing was saved.',
+      true,
+    );
     return;
   }
 
-  // The suffix is the only marker that a file is not a verbatim capture.
-  // Writing a marker key into the JSON would break the guarantee that every
-  // value in a trimmed file came from HubSpot.
+  // The suffix is the only marker that a file is not a verbatim capture. The
+  // one key the extension ever adds in-band is uiNumber, opted into by its own
+  // checkbox, and a file carrying it always carries the -numbered suffix.
   const name = `${localDateStamp()}-${payload.flowId || 'unknown-flow'}${output.suffix}.json`;
   const url = URL.createObjectURL(new Blob([output.text], { type: 'application/json' }));
   const anchor = document.createElement('a');

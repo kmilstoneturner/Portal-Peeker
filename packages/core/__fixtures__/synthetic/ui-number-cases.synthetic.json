@@ -1,0 +1,128 @@
+{
+  "flowType": "Workflow",
+  "name": "Synthetic: ui-number traversal cases",
+  "isEnabled": true,
+  "firstActionId": 40,
+  "flowObjectType": "CONTACT",
+  "objectTypeId": "0-1",
+  "portalId": 111111111,
+  "flowId": 3333333333,
+  "isClassicWorkflow": true,
+  "version": 2,
+  "actions": {
+    "10": {
+      "actionId": 10,
+      "metadata": { "actionType": "LIST_BRANCH" },
+      "connection": {
+        "listBranches": [
+          {
+            "listId": 61,
+            "branchName": "Goto into the deep chain",
+            "connection": { "nextActionId": 22, "edgeType": "GOTO", "connectionType": "SINGLE" },
+            "nextActionId": 22
+          },
+          {
+            "listId": 62,
+            "branchName": "Standard column",
+            "connection": { "nextActionId": 30, "edgeType": "STANDARD", "connectionType": "SINGLE" },
+            "nextActionId": 30
+          },
+          {
+            "listId": 63,
+            "branchName": "Empty branch",
+            "connection": null,
+            "nextActionId": null
+          }
+        ],
+        "defaultConnection": { "nextActionId": 50, "edgeType": "STANDARD", "connectionType": "SINGLE" },
+        "defaultBranchName": "None met",
+        "connectionType": "LIST_BRANCH"
+      },
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-7",
+      "actionType": "LIST_BRANCH"
+    },
+    "20": {
+      "actionId": 20,
+      "metadata": { "actionType": "LIST_BRANCH" },
+      "connection": {
+        "listBranches": [
+          {
+            "listId": 64,
+            "branchName": "First column",
+            "connection": { "nextActionId": 21, "edgeType": "STANDARD", "connectionType": "SINGLE" },
+            "nextActionId": 21
+          },
+          {
+            "listId": 65,
+            "branchName": "Second column",
+            "connection": { "nextActionId": 23, "edgeType": "STANDARD", "connectionType": "SINGLE" },
+            "nextActionId": 23
+          }
+        ],
+        "defaultConnection": null,
+        "defaultBranchName": null,
+        "connectionType": "LIST_BRANCH"
+      },
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-7",
+      "actionType": "LIST_BRANCH"
+    },
+    "21": {
+      "actionId": 21,
+      "metadata": { "actionType": "DELAY", "delay": { "delta": 5, "timeUnit": "MINUTES" } },
+      "connection": { "nextActionId": 22, "edgeType": "STANDARD", "connectionType": "SINGLE" },
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-1",
+      "actionType": "DELAY"
+    },
+    "22": {
+      "actionId": 22,
+      "metadata": { "actionType": "EMAIL", "contentId": 4242 },
+      "connection": null,
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-4",
+      "actionType": "EMAIL"
+    },
+    "23": {
+      "actionId": 23,
+      "metadata": { "actionType": "EMAIL", "contentId": 4242 },
+      "connection": null,
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-4",
+      "actionType": "EMAIL"
+    },
+    "30": {
+      "actionId": 30,
+      "metadata": { "actionType": "EMAIL", "contentId": 4242 },
+      "connection": { "nextActionId": 20, "edgeType": "STANDARD", "connectionType": "SINGLE" },
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-4",
+      "actionType": "EMAIL"
+    },
+    "40": {
+      "actionId": 40,
+      "metadata": { "actionType": "DELAY", "delay": { "delta": 1, "timeUnit": "MINUTES" } },
+      "connection": { "nextActionId": 10, "edgeType": "STANDARD", "connectionType": "SINGLE" },
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-1",
+      "actionType": "DELAY"
+    },
+    "50": {
+      "actionId": 50,
+      "metadata": { "actionType": "EMAIL", "contentId": 4242 },
+      "connection": null,
+      "portalId": 111111111,
+      "flowId": 3333333333,
+      "actionTypeId": "0-4",
+      "actionType": "EMAIL"
+    }
+  }
+}
