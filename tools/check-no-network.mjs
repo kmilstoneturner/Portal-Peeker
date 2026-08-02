@@ -1,5 +1,5 @@
-// The extension makes zero network calls. This is the product's core claim,
-// not a preference, so it is checked mechanically rather than by review.
+// The extension talks to no host but hubspot.com. This is the product's core
+// claim, not a preference, so it is checked mechanically rather than by review.
 //
 // Three checks against the built bundle:
 //
@@ -22,8 +22,15 @@ const DIST = join(ROOT, 'extension/dist');
 const ALLOWED_HOSTS = [/(^|\.)hubspot\.com$/];
 const TEXT_EXTENSIONS = new Set(['.js', '.json', '.html', '.css', '.mjs']);
 
-// Documentation and schema URLs that are never fetched at runtime.
-const IGNORED_PREFIXES = ['http://www.w3.org/', 'https://www.w3.org/'];
+// Documentation and schema URLs that are never fetched at runtime. polyform is
+// here for the LICENSE that ships in the package: it has no extension so it is
+// skipped today, but the exemption should be a decision rather than an accident
+// of TEXT_EXTENSIONS.
+const IGNORED_PREFIXES = [
+  'http://www.w3.org/',
+  'https://www.w3.org/',
+  'https://polyformproject.org/',
+];
 
 function walk(dir) {
   const out = [];

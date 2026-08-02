@@ -6,7 +6,9 @@ you open and save it, and lets you copy or download those exact bytes.
 <img width="341" height="477" alt="Portal-Peeker" src="https://github.com/user-attachments/assets/c4078b7a-35a7-4c7d-8d8b-8e30d48e0dde" />
 
 
-**The extension makes zero network calls.** No telemetry, no analytics, no error reporting.
+**The extension talks to no host but HubSpot.** No telemetry, no analytics, no error
+reporting, no third party of any kind. The only request it ever makes is Refresh refetching
+the flow from HubSpot's own API, on a click, and nothing else it does leaves your machine.
 `host_permissions` is `*://*.hubspot.com/*` and nothing else, which you can verify yourself
 in `chrome://extensions`. CI fails the build on any absolute URL to a non-HubSpot host in
 the bundle.
