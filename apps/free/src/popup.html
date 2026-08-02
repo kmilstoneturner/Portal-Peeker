@@ -36,6 +36,27 @@
           <input type="checkbox" id="opt-trim" />
           <span id="opt-trim-label">Trim to workflow logic</span>
         </label>
+        <label class="check sub" for="opt-numbers">
+          <input type="checkbox" id="opt-numbers" checked />
+          <span>Add editor numbers</span>
+          <button
+            type="button"
+            class="info"
+            id="numbers-info"
+            aria-expanded="false"
+            aria-controls="numbers-tip"
+            aria-label="About editor numbers"
+          >
+            i
+          </button>
+        </label>
+        <p class="tip" id="numbers-tip" hidden>
+          The numbers on each card in the editor (1, 2, 3...) are not in the
+          JSON HubSpot sends. This adds each card's number as a uiNumber field,
+          so an AI or a teammate can say "action 12" and mean the card you see
+          on screen. Numbers shift when actions are added, moved, or removed:
+          they are valid for this capture only. actionId is the stable handle.
+        </p>
         <label class="check sub" for="opt-strip">
           <input type="checkbox" id="opt-strip" />
           <span>Strip HTML from email bodies</span>

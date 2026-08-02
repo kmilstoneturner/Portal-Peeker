@@ -53,6 +53,26 @@ Cases encoded, and why each is there:
 | HTML body with list, bold, entity, link | converted only with `stripHtml` | |
 | plain-text body | untouched | |
 
+## `ui-number-cases.synthetic.json`
+
+Hand-authored like the trim cases, for the editor-number walker in
+`src/ui-numbers.js`. The editor labels every action card with a number that
+appears nowhere in the payload: it is the breadth-first reading order of the
+STANDARD-edge tree from `firstActionId`, listBranches order then default, GOTO
+edges skipped.
+
+The graph is built so that **every wrong traversal produces a different
+numbering**: a GOTO from an early branch into the deepest card (following it
+would misplace that card), a default column beside ordinary columns
+(default-first or depth-first would renumber it), sibling branches whose
+correct numbers disagree with their actionId order, an empty branch, a null
+defaultConnection, and terminal actions. Expected numbers are hand-computed in
+`test/ui-numbers.test.js`, with one assertion per wrong traversal.
+
+The withdrawal cases (unrecognized `connectionType` or `edgeType`, actions
+reachable only through a GOTO) are built in the test by mutating a parsed copy,
+because a payload carrying them could not have come from the editor.
+
 ## Adding a fixture
 
 Captures from **client portals are never committed**, period. Put them in the

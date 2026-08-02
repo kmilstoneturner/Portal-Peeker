@@ -113,6 +113,7 @@ body {
 }
 
 .options {
+  position: relative;
   margin: 10px 14px 0;
   padding: 9px 10px;
   border: 1px solid var(--line);
@@ -146,6 +147,56 @@ body {
 .check.is-disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* Numbering appends uiNumber keys, so like stripping it rides on top of a
+   trim. The info button explains why without costing popup real estate. */
+.info {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
+  padding: 0;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+
+.info:hover,
+.info:focus-visible,
+.info[aria-expanded="true"] {
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+}
+
+/* Overlaid above the checkbox group, never in flow. The popup window is sized
+   by the document, so an in-flow tip resizes the whole popup every time it
+   opens. An overlay changes pixels and nothing else. It opens upward because
+   the options box sits near the bottom edge, where there is no room below. */
+.tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(51, 71, 91, 0.18);
+  color: var(--fg);
+  font-size: 11px;
+}
+
+.tip + .check {
+  margin-top: 6px;
 }
 
 .actions {
