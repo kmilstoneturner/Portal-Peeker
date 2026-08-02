@@ -7,7 +7,7 @@
 // serves raw and only raw. That is what keeps the capture path parser-free: a
 // bug in the trim can cost an export, never a capture.
 //
-// The preferences this page owns (the three checkboxes) live in localStorage
+// The preferences this page owns (the four checkboxes) live in localStorage
 // rather than chrome.storage, which keeps the extension at zero permissions.
 // Nothing about a capture is ever persisted anywhere.
 
@@ -15,6 +15,7 @@ import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND } from './lib/protocol.js';
 import { summarize } from './lib/summary.js';
 import { trim, estimateTokens } from './lib/trim.js';
 import { uiNumbersFromText, addUiNumbers } from './lib/ui-numbers.js';
+import { buildAiContext, checkAiContext, addAiContext, MODIFICATIONS } from './lib/ai-context.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -41,12 +42,16 @@ const view = {
   numbersInfo: el('numbers-info'),
   numbersTip: el('numbers-tip'),
   strip: el('opt-strip'),
+  context: el('opt-context'),
+  contextInfo: el('context-info'),
+  contextTip: el('context-tip'),
 };
 
 const STORAGE = {
   trim: 'portal-peeker.trim',
   strip: 'portal-peeker.stripHtml',
   numbers: 'portal-peeker.uiNumbers',
+  context: 'portal-peeker.aiContext',
 };
 
 let tabId = null;
@@ -98,6 +103,22 @@ const KIND_LABEL = {
   [CAPTURE_KIND.REFRESH]: 'refreshed',
 };
 
+// How the context block names the same three kinds, written for a reader who
+// has never seen this extension.
+const CAPTURED_FROM = {
+  [CAPTURE_KIND.LOAD]: 'editor load',
+  [CAPTURE_KIND.SAVE]: 'save',
+  [CAPTURE_KIND.REFRESH]: 'refresh',
+};
+
+function manifestVersion() {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- trimming
 
 function trimFor(raw, stripHtml) {
@@ -112,44 +133,125 @@ function numbersFor(raw) {
   return variants.get('numbers');
 }
 
-/** Annotated variant of the trim preview, for the size and token rows. */
-function numberedFor(raw, stripHtml) {
-  const key = (stripHtml ? 'strip' : 'plain') + '-numbered';
-  if (!variants.has(key)) {
-    const base = trimFor(raw, stripHtml);
-    variants.set(key, base.ok ? addUiNumbers(raw, base.output) : { ok: false });
-  }
+/** Annotated variant of an export, for the size and token rows. */
+function numberedFor(key, raw, text) {
+  if (!variants.has(key)) variants.set(key, addUiNumbers(raw, text));
+  return variants.get(key);
+}
+
+/** Whether the open capture can carry a context block at all. */
+function contextCheckFor(raw) {
+  if (!variants.has('context')) variants.set('context', checkAiContext(raw));
+  return variants.get('context');
+}
+
+function summaryFor(raw) {
+  if (!variants.has('summary')) variants.set('summary', summarize(raw));
+  return variants.get('summary');
+}
+
+/** Context-carrying variant of an export, for the size and token rows. */
+function contextedFor(key, text, meta) {
+  if (!variants.has(key)) variants.set(key, addAiContext(text, buildAiContext(meta)));
   return variants.get(key);
 }
 
 const numbersWanted = () => view.numbers.checked && !view.numbers.disabled;
+const contextWanted = () => view.context.checked && !view.context.disabled;
 
 /**
- * What Copy and Download should actually emit, for a freshly pulled body.
+ * Everything the block says about this export.
+ *
+ * Core computes none of it: the extension version, the clock, and which options
+ * ran are all facts about this page, and a pure module has no business guessing
+ * at any of them. Whatever is unknown is passed as null and left out.
+ */
+function contextMeta(summary, source, applied) {
+  return {
+    capturedAtIso: Number.isFinite(source.capturedAt)
+      ? new Date(source.capturedAt).toISOString()
+      : null,
+    capturedFrom: CAPTURED_FROM[source.kind] || null,
+    flowId: summary.flowId || source.flowId || null,
+    flowName: summary.name,
+    portalId: summary.portalId,
+    flowVersion: summary.version,
+    extensionVersion: manifestVersion(),
+    modifications: applied,
+  };
+}
+
+/**
+ * What Copy and Download should actually emit.
+ *
  * Returns { failed } instead of an export when a step refuses: shipping bytes
  * under a suffix that promises something else would be worse than an error.
+ *
+ * One function serves both the buttons and the size rows, so the rows can never
+ * describe a file different from the one that gets written. Exports run it on a
+ * freshly pulled body; the rows run it on the open snapshot, where cached lets
+ * the expensive steps be reused across a toggle.
+ *
+ * @param {string} raw body to export from
+ * @param {object} source snapshot or payload, for flowId, kind, capturedAt
+ * @param {boolean} cached whether raw is the open snapshot
  */
-function exportFor(raw) {
-  if (!view.trim.checked) {
-    return { text: raw, suffix: '', label: '' };
+function buildExport(raw, source, cached = false) {
+  const marks = [];
+  const labels = [];
+  const applied = Object.fromEntries(MODIFICATIONS.map((m) => [m.flag, false]));
+  let text = raw;
+
+  // Filename mark, status label, and the flag the context block reports all
+  // come from one entry, so a file can never carry a suffix the block does not
+  // mention. tools/check-ai-context.mjs enforces the other direction.
+  const note = (flag) => {
+    const entry = MODIFICATIONS.find((m) => m.flag === flag);
+    applied[flag] = true;
+    marks.push(entry.mark);
+    labels.push(entry.label);
+  };
+  const stageKey = () => marks.join('-') || 'raw';
+
+  if (view.trim.checked) {
+    const stripHtml = view.strip.checked;
+    const result = cached ? trimFor(raw, stripHtml) : trim(raw, { stripHtml });
+    if (!result.ok) return { failed: 'trim' };
+
+    text = result.output;
+    note('trimmedToWorkflowLogic');
+    if (stripHtml) note('htmlStrippedFromEmailBodies');
   }
-  const stripHtml = view.strip.checked;
-  const result = trim(raw, { stripHtml });
-  if (!result.ok) return { failed: 'trim' };
 
-  let text = result.output;
-  const marks = stripHtml ? ['trimmed', 'stripped'] : ['trimmed'];
-  const labels = stripHtml ? ['trimmed', 'HTML stripped'] : ['trimmed'];
-
+  // Numbering inserts text rather than reserializing, so it runs on the raw
+  // capture just as safely as on a trim. It is nobody's sub-option.
   if (numbersWanted()) {
-    const numbered = addUiNumbers(raw, text);
+    const numbered = cached
+      ? numberedFor(`${stageKey()}-numbered`, raw, text)
+      : addUiNumbers(raw, text);
     if (!numbered.ok) return { failed: 'numbers' };
     text = numbered.output;
-    marks.push('numbered');
-    labels.push('numbered');
+    note('editorNumbersAdded');
   }
 
-  return { text, suffix: `-${marks.join('-')}`, label: ` (${labels.join(', ')})` };
+  if (contextWanted()) {
+    // The block reports what actually ran, not what is ticked. An option can be
+    // ticked and withdrawn in the same breath.
+    const meta = contextMeta(cached ? summaryFor(raw) : summarize(raw), source, applied);
+    const contexted = cached
+      ? contextedFor(`${stageKey()}-ai`, text, meta)
+      : addAiContext(text, buildAiContext(meta));
+    if (!contexted.ok) return { failed: 'context' };
+    text = contexted.output;
+    marks.push('ai');
+    labels.push('AI context');
+  }
+
+  return {
+    text,
+    suffix: marks.length ? `-${marks.join('-')}` : '',
+    label: labels.length ? ` (${labels.join(', ')})` : '',
+  };
 }
 
 // ---------------------------------------------------------------- render
@@ -176,51 +278,51 @@ function renderSizes() {
     view.trimLabel.textContent = 'Trim to workflow logic';
   }
 
-  if (!view.trim.checked || !preview.ok) {
+  // The rows show the export as configured, whichever boxes are ticked, so the
+  // context block's cost is visible too. With nothing ticked there is no second
+  // figure to show, because there is no second file.
+  const built = buildExport(raw, snapshot, true);
+
+  if (built.failed || built.suffix === '') {
     setDelta(view.size, `${num(rawBytes)} bytes`, null, rawBytes < 1024 ? '' : ` (${(rawBytes / 1024).toFixed(1)} KB)`);
     setDelta(view.tokens, `~${num(rawTokens)}`, null);
     return;
   }
 
-  // The rows show the export as configured, so numbering's small cost is
-  // included whenever the box is ticked.
-  let outputText = preview.output;
-  let outputBytes = preview.outputBytes;
-  if (numbersWanted()) {
-    const numbered = numberedFor(raw, view.strip.checked);
-    if (numbered.ok) {
-      outputText = numbered.output;
-      outputBytes = new TextEncoder().encode(numbered.output).length;
-    }
-  }
-
+  const outputBytes = new TextEncoder().encode(built.text).length;
   setDelta(view.size, num(rawBytes), num(outputBytes), ' bytes');
-  setDelta(view.tokens, `~${num(rawTokens)}`, `~${num(estimateTokens(outputText))}`);
+  setDelta(view.tokens, `~${num(rawTokens)}`, `~${num(estimateTokens(built.text))}`);
 }
 
-function renderOptions(trimmable, reason, numbersCheck) {
+function renderOptions(trimmable, reason, numbersCheck, contextCheck) {
   view.trim.disabled = !trimmable;
   view.trim.parentElement.classList.toggle('is-disabled', !trimmable);
   if (!trimmable) view.trim.checked = false;
 
-  // Stripping HTML rewrites values and numbering appends uiNumber keys, so
-  // both ride on top of a trim. With the trim off, output is byte-identical
-  // to what HubSpot sent, always.
+  // Stripping HTML rewrites values, which only a trim's output can absorb, so
+  // it is the trim's sub-option and the only one.
   const onTopOfTrim = trimmable && view.trim.checked;
   view.strip.disabled = !onTopOfTrim;
   view.strip.parentElement.classList.toggle('is-disabled', !onTopOfTrim);
 
-  // Numbering can also be withdrawn on its own, when the graph has a shape the
-  // walker does not recognize. Withdrawn rather than partial: a file where
-  // some cards carry numbers and some do not looks complete while lying.
+  // Numbering stands on its own: it inserts text and rewrites nothing, so it
+  // works on raw bytes. It is withdrawn only when the graph has a shape the
+  // walker does not recognize, and then entirely rather than partially: a file
+  // where some cards carry numbers and some do not looks complete while lying.
   const numbersOk = Boolean(numbersCheck && numbersCheck.ok);
-  const numbersAvailable = onTopOfTrim && numbersOk;
-  view.numbers.disabled = !numbersAvailable;
-  view.numbers.parentElement.classList.toggle('is-disabled', !numbersAvailable);
-  view.numbers.parentElement.title =
-    trimmable && !numbersOk && numbersCheck
-      ? `Editor numbers unavailable: ${numbersCheck.reason}`
-      : '';
+  view.numbers.disabled = !numbersOk;
+  view.numbers.parentElement.classList.toggle('is-disabled', !numbersOk);
+  view.numbers.parentElement.title = numbersOk
+    ? ''
+    : `Editor numbers unavailable: ${numbersCheck ? numbersCheck.reason : 'no capture'}`;
+
+  // The context block rides on nothing: it is one inserted key, so it works on
+  // a trimmed export and on raw bytes alike. It is withdrawn only when the
+  // payload cannot carry it, which is a fact about the payload, not the trim.
+  const contextOk = Boolean(contextCheck && contextCheck.ok);
+  view.context.disabled = !contextOk;
+  view.context.parentElement.classList.toggle('is-disabled', !contextOk);
+  view.context.parentElement.title = contextOk ? '' : `AI context unavailable: ${contextCheck.reason}`;
 
   return reason;
 }
@@ -231,7 +333,7 @@ function render(status) {
   view.kind.hidden = false;
   view.kind.textContent = KIND_LABEL[status.kind] || 'captured';
 
-  const summary = summarize(status.raw);
+  const summary = summaryFor(status.raw);
 
   view.name.textContent = summary.name || 'Name not found in payload';
   // The bridge knows the flow ID from the URL even when the body will not
@@ -242,7 +344,7 @@ function render(status) {
   view.when.textContent = formatWhen(status.capturedAt);
 
   const trimCheck = trimFor(status.raw, view.strip.checked);
-  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(status.raw));
+  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(status.raw), contextCheckFor(status.raw));
 
   if (summary.recognized && trimCheck.ok) {
     view.degraded.hidden = true;
@@ -253,7 +355,7 @@ function render(status) {
     // complete while missing whatever the rules never reached, so it is
     // withdrawn rather than attempted.
     const detail = summary.recognized ? trimCheck.reason : summary.reason;
-    view.degraded.textContent = `Shape not fully recognized: ${detail}. Copy and Download still give you the exact bytes. Trimming is unavailable for this payload.`;
+    view.degraded.textContent = `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes. Trimming is unavailable for this payload.`;
   }
 
   renderSizes();
@@ -312,9 +414,10 @@ function restoreOptions() {
   try {
     view.trim.checked = localStorage.getItem(STORAGE.trim) === 'true';
     view.strip.checked = localStorage.getItem(STORAGE.strip) === 'true';
-    // Numbers default on: only an explicit untick, stored as 'false', turns
-    // them off. Absent means checked, matching the markup.
+    // Numbers and the context block default on: only an explicit untick, stored
+    // as 'false', turns them off. Absent means checked, matching the markup.
     view.numbers.checked = localStorage.getItem(STORAGE.numbers) !== 'false';
+    view.context.checked = localStorage.getItem(STORAGE.context) !== 'false';
   } catch {
     // Private mode or blocked storage. Defaults are fine.
   }
@@ -325,6 +428,7 @@ function persistOptions() {
     localStorage.setItem(STORAGE.trim, String(view.trim.checked));
     localStorage.setItem(STORAGE.strip, String(view.strip.checked));
     localStorage.setItem(STORAGE.numbers, String(view.numbers.checked));
+    localStorage.setItem(STORAGE.context, String(view.context.checked));
   } catch {
     /* preference is not worth an error message */
   }
@@ -334,7 +438,7 @@ function onOptionChange() {
   persistOptions();
   if (!snapshot) return;
   const trimCheck = trimFor(snapshot.raw, view.strip.checked);
-  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(snapshot.raw));
+  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(snapshot.raw), contextCheckFor(snapshot.raw));
   renderSizes();
   say('');
 }
@@ -342,6 +446,7 @@ function onOptionChange() {
 view.trim.addEventListener('change', onOptionChange);
 view.strip.addEventListener('change', onOptionChange);
 view.numbers.addEventListener('change', onOptionChange);
+view.context.addEventListener('change', onOptionChange);
 
 // ---------------------------------------------------------------- info tip
 
@@ -349,31 +454,47 @@ view.numbers.addEventListener('change', onOptionChange);
 // no hover). The button sits inside the label, and an interactive descendant
 // of a label does not activate its control, so clicking it never toggles the
 // checkbox.
-let tipPinned = false;
+//
+// Every tip occupies the same overlay slot, so opening one closes the others.
+const tips = [];
 
-function showTip(open) {
-  view.numbersTip.hidden = !open;
-  view.numbersInfo.setAttribute('aria-expanded', String(open));
+function wireTip(button, panel) {
+  let pinned = false;
+
+  const show = (open) => {
+    panel.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  };
+  const tip = { close: () => { pinned = false; show(false); } };
+  const open = () => {
+    for (const other of tips) if (other !== tip) other.close();
+    show(true);
+  };
+
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    pinned = !pinned;
+    if (pinned) open();
+    else show(false);
+  });
+  button.addEventListener('mouseenter', open);
+  button.addEventListener('mouseleave', () => {
+    if (!pinned) show(false);
+  });
+  button.addEventListener('focus', open);
+  button.addEventListener('blur', () => {
+    if (!pinned) show(false);
+  });
+
+  tips.push(tip);
+  return tip;
 }
 
-view.numbersInfo.addEventListener('click', (event) => {
-  event.stopPropagation();
-  tipPinned = !tipPinned;
-  showTip(tipPinned);
-});
-view.numbersInfo.addEventListener('mouseenter', () => showTip(true));
-view.numbersInfo.addEventListener('mouseleave', () => {
-  if (!tipPinned) showTip(false);
-});
-view.numbersInfo.addEventListener('focus', () => showTip(true));
-view.numbersInfo.addEventListener('blur', () => {
-  if (!tipPinned) showTip(false);
-});
+wireTip(view.numbersInfo, view.numbersTip);
+wireTip(view.contextInfo, view.contextTip);
+
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && tipPinned) {
-    tipPinned = false;
-    showTip(false);
-  }
+  if (event.key === 'Escape') for (const tip of tips) tip.close();
 });
 
 // ---------------------------------------------------------------- actions
@@ -387,19 +508,24 @@ async function freshPayload() {
   return payload;
 }
 
+// Named by the step that refused, so the message points at the checkbox to
+// untick rather than at the export in general.
+const FAILURE = {
+  trim: 'Could not trim this payload.',
+  numbers: 'Could not number this payload.',
+  context: 'Could not add the AI context block.',
+};
+
+const failureText = (failed, ending) => `${FAILURE[failed] || 'Could not build this export.'} ${ending}`;
+
 view.copy.addEventListener('click', async () => {
   const payload = await freshPayload();
   if (!payload) return;
 
-  // Trimmed from the freshly pulled body, never from a cached result.
-  const output = exportFor(payload.raw);
+  // Built from the freshly pulled body, never from a cached result.
+  const output = buildExport(payload.raw, payload);
   if (output.failed) {
-    say(
-      output.failed === 'numbers'
-        ? 'Could not number this payload. Nothing was copied.'
-        : 'Could not trim this payload. Nothing was copied.',
-      true,
-    );
+    say(failureText(output.failed, 'Nothing was copied.'), true);
     return;
   }
 
@@ -421,20 +547,16 @@ view.download.addEventListener('click', async () => {
   const payload = await freshPayload();
   if (!payload) return;
 
-  const output = exportFor(payload.raw);
+  const output = buildExport(payload.raw, payload);
   if (output.failed) {
-    say(
-      output.failed === 'numbers'
-        ? 'Could not number this payload. Nothing was saved.'
-        : 'Could not trim this payload. Nothing was saved.',
-      true,
-    );
+    say(failureText(output.failed, 'Nothing was saved.'), true);
     return;
   }
 
   // The suffix is the only marker that a file is not a verbatim capture. The
-  // one key the extension ever adds in-band is uiNumber, opted into by its own
-  // checkbox, and a file carrying it always carries the -numbered suffix.
+  // extension adds exactly two keys in band, uiNumber and _aiContext, each
+  // behind its own checkbox, and a file carrying one always carries the
+  // matching suffix.
   const name = `${localDateStamp()}-${payload.flowId || 'unknown-flow'}${output.suffix}.json`;
   const url = URL.createObjectURL(new Blob([output.text], { type: 'application/json' }));
   const anchor = document.createElement('a');

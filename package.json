@@ -12,12 +12,13 @@
   "scripts": {
     "build": "node tools/build.mjs",
     "build:free": "node tools/build.mjs",
+    "check:ai-context": "node tools/check-ai-context.mjs",
     "check:no-network": "node tools/check-no-network.mjs",
     "check:no-portal-data": "node tools/check-no-portal-data.mjs",
     "pretest": "node tools/build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run build && npm run check:no-network && npm run check:no-portal-data && npm run test"
+    "verify": "npm run build && npm run check:no-network && npm run check:no-portal-data && npm run check:ai-context && npm run test"
   },
   "devDependencies": {
     "vitest": "^4.1.10"

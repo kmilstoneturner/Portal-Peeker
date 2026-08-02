@@ -36,7 +36,11 @@
           <input type="checkbox" id="opt-trim" />
           <span id="opt-trim-label">Trim to workflow logic</span>
         </label>
-        <label class="check sub" for="opt-numbers">
+        <label class="check sub" for="opt-strip">
+          <input type="checkbox" id="opt-strip" />
+          <span>Strip HTML from email bodies</span>
+        </label>
+        <label class="check" for="opt-numbers">
           <input type="checkbox" id="opt-numbers" checked />
           <span>Add editor numbers</span>
           <button
@@ -57,10 +61,27 @@
           on screen. Numbers shift when actions are added, moved, or removed:
           they are valid for this capture only. actionId is the stable handle.
         </p>
-        <label class="check sub" for="opt-strip">
-          <input type="checkbox" id="opt-strip" />
-          <span>Strip HTML from email bodies</span>
+        <label class="check" for="opt-context">
+          <input type="checkbox" id="opt-context" checked />
+          <span>Add AI context</span>
+          <button
+            type="button"
+            class="info"
+            id="context-info"
+            aria-expanded="false"
+            aria-controls="context-tip"
+            aria-label="About AI context"
+          >
+            i
+          </button>
         </label>
+        <p class="tip" id="context-tip" hidden>
+          Inserts an _aiContext block as the first key of the export: what this
+          file is, when it was captured, and how to name actions (uiNumber for
+          the card on the canvas, actionId as the stable handle). Still valid
+          JSON, and it works with trimming on or off. Delete that one key and
+          the remaining bytes are exactly the export without it.
+        </p>
       </div>
 
       <div class="actions">

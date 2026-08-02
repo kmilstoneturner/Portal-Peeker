@@ -139,7 +139,8 @@ body {
 }
 
 /* Stripping HTML is a transformation, not a subtraction, so it is only
-   available on top of a trim. Raw output stays byte-identical, always. */
+   available on top of a trim. The indent is what says so. Top level checkboxes
+   (the trim itself, the AI context block) stand on their own. */
 .check.sub {
   margin-left: 18px;
 }
@@ -149,8 +150,8 @@ body {
   cursor: default;
 }
 
-/* Numbering appends uiNumber keys, so like stripping it rides on top of a
-   trim. The info button explains why without costing popup real estate. */
+/* The info buttons explain the two in-band additions (uiNumber, _aiContext)
+   without costing popup real estate. */
 .info {
   flex: 0 0 auto;
   width: 14px;
