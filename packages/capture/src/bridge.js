@@ -216,7 +216,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     case POPUP_MSG.PAYLOAD: {
       const current = readable();
-      sendResponse(current ? { hasCapture: true, raw: current.raw, flowId: current.flowId } : { hasCapture: false });
+      // kind and capturedAt ride along so an export can state when it was taken
+      // and where it came from. Facts about the snapshot, same as flowId: the
+      // bridge still knows nothing about preferences or output.
+      sendResponse(
+        current
+          ? {
+              hasCapture: true,
+              raw: current.raw,
+              flowId: current.flowId,
+              kind: current.kind,
+              capturedAt: current.capturedAt,
+            }
+          : { hasCapture: false },
+      );
       return undefined;
     }
 
