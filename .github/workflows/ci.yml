@@ -24,14 +24,14 @@ jobs:
 
       - run: npm ci
 
-      - name: Build the free bundle
+      - name: Build the extension
         run: npm run build
 
       # The product's core claim, checked mechanically rather than by review.
       # Fails on any absolute URL to a non-HubSpot host in the built bundle, on
       # any reference to server-client, and on host_permissions widening beyond
       # hubspot.com.
-      - name: No network calls in the free build
+      - name: No network calls in the extension
         run: npm run check:no-network
 
       # Allowlist check: every large integer in a committed file must be a known

@@ -1,23 +1,23 @@
-// The free build makes zero network calls. This is the product's core claim,
+// The extension makes zero network calls. This is the product's core claim,
 // not a preference, so it is checked mechanically rather than by review.
 //
-// Three checks against the built free bundle:
+// Three checks against the built bundle:
 //
 //   1. No absolute URL to any host other than hubspot.com.
 //   2. No import of anything under packages/server-client.
 //   3. host_permissions is exactly hubspot.com, so a user can verify the claim
 //      themselves in chrome://extensions without taking our word for it.
 //
-// When the pro build and its API domain exist, add that domain to
-// FORBIDDEN_HOSTS explicitly. Until then the allowlist below is the stronger
-// check: it fails on any third-party host, including one nobody has thought of.
+// A build that does talk to a server would live in a separate branch or repo
+// and carry its own check. The allowlist below is deliberately the stronger
+// form: it fails on any third-party host, including one nobody has thought of.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const DIST = join(ROOT, 'apps/free/dist');
+const DIST = join(ROOT, 'extension/dist');
 
 const ALLOWED_HOSTS = [/(^|\.)hubspot\.com$/];
 const TEXT_EXTENSIONS = new Set(['.js', '.json', '.html', '.css', '.mjs']);
@@ -41,7 +41,7 @@ let files;
 try {
   files = walk(DIST);
 } catch {
-  console.error('apps/free/dist not found. Run: npm run build');
+  console.error('extension/dist not found. Run: npm run build');
   process.exit(1);
 }
 
@@ -66,7 +66,7 @@ for (const file of files) {
   }
 
   if (/server-client/.test(text)) {
-    failures.push(`${rel}: references server-client, which must never reach the free build`);
+    failures.push(`${rel}: references server-client, which must never reach the extension`);
   }
 }
 
@@ -76,7 +76,7 @@ if (hosts !== JSON.stringify(['*://*.hubspot.com/*'])) {
   failures.push(`manifest host_permissions must be exactly ["*://*.hubspot.com/*"], found ${hosts}`);
 }
 if ((manifest.permissions || []).length > 0) {
-  failures.push(`free build should request no extra permissions, found ${JSON.stringify(manifest.permissions)}`);
+  failures.push(`the extension should request no extra permissions, found ${JSON.stringify(manifest.permissions)}`);
 }
 
 if (failures.length) {

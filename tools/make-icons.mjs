@@ -2,7 +2,7 @@
 //
 // A minimal PNG encoder: signature, IHDR, one zlib-deflated IDAT, IEND. Node's
 // zlib does the only hard part. This is here instead of a dependency because
-// the whole free build is meant to be readable end to end by anyone auditing
+// the whole extension is meant to be readable end to end by anyone auditing
 // the "no network calls" claim, and a four-file icon pipeline is not worth an
 // npm package.
 

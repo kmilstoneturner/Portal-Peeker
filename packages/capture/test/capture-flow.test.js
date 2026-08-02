@@ -16,7 +16,7 @@ import { createContext, runInContext } from 'node:vm';
 import { TextEncoder } from 'node:util';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-const dist = (name) => fileURLToPath(new URL(`../../../apps/free/dist/${name}`, import.meta.url));
+const dist = (name) => fileURLToPath(new URL(`../../../extension/dist/${name}`, import.meta.url));
 
 const EDITOR_URL = 'https://app.hubspot.com/workflows/12345678/platform/flow/1000000001/edit';
 const ORIGIN = 'https://app.hubspot.com';
@@ -33,7 +33,7 @@ const FLOW_BODY = JSON.stringify({
 });
 
 if (!existsSync(dist('capture/interceptor.js'))) {
-  throw new Error('apps/free/dist is missing. Run: npm run build');
+  throw new Error('extension/dist is missing. Run: npm run build');
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

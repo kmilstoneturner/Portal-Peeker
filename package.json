@@ -7,11 +7,10 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "extension"
   ],
   "scripts": {
     "build": "node tools/build.mjs",
-    "build:free": "node tools/build.mjs",
     "check:ai-context": "node tools/check-ai-context.mjs",
     "check:no-network": "node tools/check-no-network.mjs",
     "check:no-portal-data": "node tools/check-no-portal-data.mjs",

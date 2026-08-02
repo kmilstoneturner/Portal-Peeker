@@ -4,5 +4,5 @@
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
-  "description": "MAIN-world interceptor and isolated-world bridge. Shared by the free and pro builds."
+  "description": "MAIN-world interceptor and isolated-world bridge."
 }
