@@ -60,10 +60,10 @@ function encodePng(size, rgba) {
   ]);
 }
 
-// HubSpot orange tile, white lens, dark pupil. Reads at 16px, which is the only
-// size that really matters. Both colours are HubSpot's own: #ff7a59 and the
-// #33475b they use for dark text. A darkened orange was tried for the pupil and
-// read as mud at every size.
+// Orange tile, white lens, dark pupil. Reads at 16px, which is the only size
+// that really matters. The pupil is the same ink the popup uses for body text
+// (--fg in popup.css), so the icon and the UI share one palette. A darkened
+// orange was tried there instead and read as mud at every size.
 const ORANGE = [255, 122, 89];
 const WHITE = [255, 255, 255];
 const INK = [51, 71, 91];
