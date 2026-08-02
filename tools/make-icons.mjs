@@ -60,11 +60,13 @@ function encodePng(size, rgba) {
   ]);
 }
 
-// HubSpot teal tile, white lens, dark pupil. Reads at 16px, which is the only
-// size that really matters.
-const TEAL = [0, 189, 165];
+// HubSpot orange tile, white lens, dark pupil. Reads at 16px, which is the only
+// size that really matters. Both colours are HubSpot's own: #ff7a59 and the
+// #33475b they use for dark text. A darkened orange was tried for the pupil and
+// read as mud at every size.
+const ORANGE = [255, 122, 89];
 const WHITE = [255, 255, 255];
-const INK = [0, 66, 58];
+const INK = [51, 71, 91];
 
 function blend(px, i, colour, alpha) {
   for (let c = 0; c < 3; c++) {
@@ -102,9 +104,9 @@ export function renderIcon(size) {
       const inside = corner <= radius ? 1 : 0;
       if (!inside) continue;
 
-      px[i] = TEAL[0];
-      px[i + 1] = TEAL[1];
-      px[i + 2] = TEAL[2];
+      px[i] = ORANGE[0];
+      px[i + 1] = ORANGE[1];
+      px[i + 2] = ORANGE[2];
       px[i + 3] = 255;
 
       const lens = discCoverage(x, y, c, c, size * 0.3);
