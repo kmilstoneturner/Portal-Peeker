@@ -5,7 +5,7 @@ you open and save it, and lets you copy or download those exact bytes.
 
 Modelled on Salesforce Inspector Reloaded.
 
-**The free build makes zero network calls.** No telemetry, no analytics, no error reporting.
+**The extension makes zero network calls.** No telemetry, no analytics, no error reporting.
 `host_permissions` is `*://*.hubspot.com/*` and nothing else, which you can verify yourself
 in `chrome://extensions`. CI fails the build on any absolute URL to a non-HubSpot host in
 the bundle.
@@ -168,13 +168,13 @@ Requires Node 20 or newer.
 npm install && npm run verify
 ```
 
-That builds `apps/free/dist`, runs both safety checks against it (no network calls, no real
+That builds `extension/dist`, runs both safety checks against it (no network calls, no real
 portal data), and runs the tests. Then:
 
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. Click **Load unpacked**
-4. Select the `apps/free/dist` folder
+4. Select the `extension/dist` folder
 
 Open a HubSpot workflow. A check mark appears on the extension icon once something has been
 captured. Note that the extension only sees requests made after it loads, so a tab that was
@@ -185,7 +185,7 @@ already open when you installed needs a reload.
 ```
 packages/core/          summary, trim, html strip, numbers, AI context, span scan. pure.
 packages/capture/       MAIN-world interceptor + isolated-world bridge. shared.
-apps/free/              manifest, popup. hubspot.com only. no network.
+extension/              manifest, popup. hubspot.com only. no network.
 tools/                  build, icon generation, the CI safety checks.
 ```
 

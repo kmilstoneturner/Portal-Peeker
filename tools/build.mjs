@@ -1,4 +1,4 @@
-// Assembles apps/free/dist, the directory you point "Load unpacked" at.
+// Assembles extension/dist, the directory you point "Load unpacked" at.
 //
 // Why a build step exists at all: content scripts are not ES modules. A file
 // declared in manifest.content_scripts is executed as a classic script, so it
@@ -22,11 +22,12 @@ import { dirname, join, resolve } from 'node:path';
 import { ICON_SIZES, renderIcon } from './make-icons.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'apps/free/dist');
+const OUT = join(ROOT, 'extension/dist');
 
 const CAPTURE = 'packages/capture/src';
 const CORE = 'packages/core/src';
-const FREE = 'apps/free/src';
+const EXTENSION = 'extension/src';
+const MANIFEST = 'extension/manifest.json';
 
 // Each content-script entry, in load order. Order is the dependency order.
 const BUNDLES = [
@@ -44,10 +45,10 @@ const BUNDLES = [
 
 // Copied as-is. These load as ES modules and can import each other.
 const COPIES = [
-  [`${FREE}/popup.html`, 'popup.html'],
-  [`${FREE}/popup.css`, 'popup.css'],
-  [`${FREE}/popup.js`, 'popup.js'],
-  [`${FREE}/service-worker.js`, 'service-worker.js'],
+  [`${EXTENSION}/popup.html`, 'popup.html'],
+  [`${EXTENSION}/popup.css`, 'popup.css'],
+  [`${EXTENSION}/popup.js`, 'popup.js'],
+  [`${EXTENSION}/service-worker.js`, 'service-worker.js'],
   [`${CAPTURE}/protocol.js`, 'lib/protocol.js'],
   [`${CORE}/summary.js`, 'lib/summary.js'],
   [`${CORE}/trim.js`, 'lib/trim.js'],
@@ -55,7 +56,7 @@ const COPIES = [
   [`${CORE}/json-span.js`, 'lib/json-span.js'],
   [`${CORE}/ui-numbers.js`, 'lib/ui-numbers.js'],
   [`${CORE}/ai-context.js`, 'lib/ai-context.js'],
-  ['apps/free/manifest.json', 'manifest.json'],
+  [MANIFEST, 'manifest.json'],
 ];
 
 // ---------------------------------------------------------------- helpers
@@ -135,15 +136,15 @@ for (const size of ICON_SIZES) {
 //
 // Cheap structural checks. The build is the last place these are free.
 
-const manifest = JSON.parse(read('apps/free/manifest.json'));
+const manifest = JSON.parse(read(MANIFEST));
 
 if (JSON.stringify(manifest.host_permissions) !== JSON.stringify(['*://*.hubspot.com/*'])) {
-  throw new Error('free build host_permissions must be exactly ["*://*.hubspot.com/*"]');
+  throw new Error('host_permissions must be exactly ["*://*.hubspot.com/*"]');
 }
 
 const worlds = manifest.content_scripts.map((cs) => cs.world);
 if (!worlds.includes('MAIN') || !worlds.includes('ISOLATED')) {
-  throw new Error('free build needs one MAIN-world and one ISOLATED-world content script');
+  throw new Error('the extension needs one MAIN-world and one ISOLATED-world content script');
 }
 
 for (const cs of manifest.content_scripts) {

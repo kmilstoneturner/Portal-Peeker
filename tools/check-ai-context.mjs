@@ -27,8 +27,8 @@ import { dirname, join, resolve } from 'node:path';
 import { MODIFICATIONS } from '../packages/core/src/ai-context.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const POPUP_HTML = 'apps/free/src/popup.html';
-const POPUP_JS = 'apps/free/src/popup.js';
+const POPUP_HTML = 'extension/src/popup.html';
+const POPUP_JS = 'extension/src/popup.js';
 
 // The checkbox that adds the block. It is not a modification of the payload:
 // it is the thing that reports them, so it has no MODIFICATIONS entry.
