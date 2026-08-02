@@ -7,7 +7,10 @@
 import { WORKER_MSG } from './lib/protocol.js';
 
 const BADGE_TEXT = '✓';
-const BADGE_COLOR = '#00bda5';
+// Matches the icon tile, so the badge reads as part of it rather than a blob
+// stuck on top. Changing one without the other is the bug this comment exists
+// to prevent.
+const BADGE_COLOR = '#ff7a59';
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!message || message.type !== WORKER_MSG.CAPTURED) return;
