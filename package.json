@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "Chrome extension for HubSpot admins: capture, inspect, and diff the JSON behind HubSpot workflows.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "workspaces": [
     "packages/*",

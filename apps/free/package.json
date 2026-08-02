@@ -2,6 +2,7 @@
   "name": "@portal-peeker/free",
   "version": "1.0.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "description": "Free build. hubspot.com only, no network calls, separate extension ID from pro.",
   "scripts": {
