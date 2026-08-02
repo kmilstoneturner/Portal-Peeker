@@ -89,6 +89,37 @@ describe('the scrubbed capture chain', () => {
 // ------------------------------------------------------------------ annotate
 
 describe('addUiNumbers is one appended key per action, nothing else', () => {
+  // The property that lets the checkbox stand on its own: annotating the raw
+  // capture leaves every original byte in place, so the export is HubSpot's
+  // bytes plus N insertions and nothing else. Sliced out by position, because
+  // a payload could legitimately contain the same substring elsewhere.
+  for (const [label, raw] of [['cases', CASES], ['load v3', LOAD_V3], ['save v4', SAVE_V4], ['refresh v4', REFRESH_V4]]) {
+    it(`cutting the inserted spans out of the raw capture restores it byte for byte: ${label}`, () => {
+      const result = addUiNumbers(raw, raw);
+      expect(result.ok, result.reason || '').toBe(true);
+      expect(result.count).toBe(summarize(raw).actionCount);
+
+      // Removing front to back: once the spans before it are gone, each
+      // insertion sits at exactly the offset it was recorded at.
+      let rebuilt = result.output;
+      for (const { at, text } of result.insertions) {
+        expect(rebuilt.slice(at, at + text.length)).toBe(text);
+        rebuilt = rebuilt.slice(0, at) + rebuilt.slice(at + text.length);
+      }
+      expect(rebuilt).toBe(raw);
+    });
+
+    it(`annotating raw changes nothing but the numbers: ${label}`, () => {
+      const annotated = JSON.parse(addUiNumbers(raw, raw).output);
+      const original = JSON.parse(raw);
+      for (const action of Object.values(findFlow(annotated).flow.actions)) {
+        expect(typeof action.uiNumber).toBe('number');
+        delete action.uiNumber;
+      }
+      expect(annotated).toEqual(original);
+    });
+  }
+
   for (const [label, raw] of [['cases', CASES], ['load v3', LOAD_V3], ['save v4', SAVE_V4]]) {
     it(`removing uiNumber restores the trim output byte for byte: ${label}`, () => {
       const trimmedText = trim(raw).output;
@@ -105,6 +136,23 @@ describe('addUiNumbers is one appended key per action, nothing else', () => {
       expect(JSON.stringify(annotated)).toBe(trimmedText);
     });
   }
+
+  it('finds the actions map through an envelope, not only at the root', () => {
+    const envelope = JSON.stringify({ results: [JSON.parse(LOAD_V3)] });
+    const result = addUiNumbers(LOAD_V3, envelope);
+    expect(result.ok, result.reason || '').toBe(true);
+    expect(result.count).toBe(summarize(LOAD_V3).actionCount);
+    const actions = JSON.parse(result.output).results[0].actions;
+    expect(Object.values(actions).map((a) => a.uiNumber)).toEqual([1, 2, 3]);
+  });
+
+  it('keeps the original formatting of a pretty-printed capture', () => {
+    // Whitespace is the visible half of "insertion only": a re-serializing
+    // implementation would silently minify the whole document.
+    const output = addUiNumbers(CASES, CASES).output;
+    expect(output).toContain('\n');
+    expect(output.split('\n').length).toBe(CASES.split('\n').length);
+  });
 
   it('numbers come from the raw graph regardless of the annotation target', () => {
     const fromRaw = addUiNumbers(CASES, CASES);
@@ -197,8 +245,19 @@ describe('withdraws rather than half-numbering', () => {
     expect(addUiNumbers('not json', trim(CASES).output).ok).toBe(false);
     expect(addUiNumbers(CASES, 'not json').reason).toBe('annotation target is not JSON');
     expect(addUiNumbers(CASES, '{"noActions":true}').reason).toBe(
-      'annotation target is not a flow at the root',
+      'no flow object found in the annotation target',
     );
+    expect(addUiNumbers(CASES, '{"flowId":1,"name":"x"}').reason).toBe(
+      'annotation target carries no actions map',
+    );
+  });
+
+  it('refuses a target whose actions map the scanner cannot read cleanly', () => {
+    // A duplicated key is valid JSON that two readers disagree about: the
+    // scanner sees the first, JSON.parse keeps the last. Refuse rather than
+    // pick.
+    const doubled = '{"flowId":1,"name":"x","firstActionId":"1","actions":{"1":{}},"actions":{"1":{}}}';
+    expect(addUiNumbers(CASES, doubled).ok).toBe(false);
   });
 
   it('steps aside if a payload ever ships its own uiNumber field', () => {

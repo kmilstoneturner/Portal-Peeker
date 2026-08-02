@@ -194,6 +194,19 @@ describe('capture, end to end across the world boundary', () => {
     expect(payload.raw).toBe(odd);
   });
 
+  it('tells the popup when the payload was captured and where it came from', async () => {
+    // The export can stamp a block with these, so they travel with the payload
+    // rather than only with the status the popup read when it opened.
+    const before = Date.now();
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+
+    const payload = await h.askPopup('pp:payload');
+    expect(payload.kind).toBe('load');
+    expect(typeof payload.capturedAt).toBe('number');
+    expect(payload.capturedAt).toBeGreaterThanOrEqual(before);
+  });
+
   it('reports byte length in UTF-8 bytes, not characters', async () => {
     const body = '{"flowId":1,"name":"café ✓","actions":{}}';
     h.setNativeFetch(async () => okResponse(body));
@@ -335,6 +348,10 @@ describe('refresh', () => {
     const status = await h.askPopup('pp:status');
     expect(status.kind).toBe('refresh');
     expect(status.raw).toBe(fresher);
+
+    const payload = await h.askPopup('pp:payload');
+    expect(payload.kind).toBe('refresh');
+    expect(payload.raw).toBe(fresher);
   });
 
   it('never overwrites the existing snapshot on an HTTP failure', async () => {

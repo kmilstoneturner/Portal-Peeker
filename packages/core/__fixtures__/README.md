@@ -12,12 +12,13 @@ Everything committed. **No value in here came from a live portal.**
 | `save-response-v4.json` | the same flow after adding an email notification, version 4 |
 | `refresh-response-v4.json` | a Refresh taken immediately after that save |
 | `trim-cases.synthetic.json` | a workflow that could not exist, covering every trim rule and every retraction |
+| `ui-number-cases.synthetic.json` | a graph built so every wrong traversal produces a different numbering |
 
 The first three are **scrubbed copies** of real captures: structure, key order,
 and HubSpot vocabulary are exactly as returned, while every identifier and every
 piece of authored content was replaced with a synthetic stand-in, consistently
-across all three so cross-file relationships still hold. The fourth is entirely
-hand-authored. See `synthetic/README.md`.
+across all three so cross-file relationships still hold. The last two are
+entirely hand-authored. See `synthetic/README.md`.
 
 Because scrubbing changes lengths, **never assert a hardcoded byte count against
 a fixture.** Measure it from the file.

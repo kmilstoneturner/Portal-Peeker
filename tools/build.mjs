@@ -52,7 +52,9 @@ const COPIES = [
   [`${CORE}/summary.js`, 'lib/summary.js'],
   [`${CORE}/trim.js`, 'lib/trim.js'],
   [`${CORE}/strip-html.js`, 'lib/strip-html.js'],
+  [`${CORE}/json-span.js`, 'lib/json-span.js'],
   [`${CORE}/ui-numbers.js`, 'lib/ui-numbers.js'],
+  [`${CORE}/ai-context.js`, 'lib/ai-context.js'],
   ['apps/free/manifest.json', 'manifest.json'],
 ];
 

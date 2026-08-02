@@ -17,12 +17,16 @@ the bundle.
   response, not the request: the request is only a proposal, and HubSpot allocates real
   objects while handling it. A stored request body is therefore never a snapshot, and is
   never replayed.
-- Shows flow name, flow ID, portal ID, version, capture time, and byte count in the popup.
-- **Copy** puts the response body on the clipboard. With trimming off, verbatim: no
+- Shows flow name, flow ID, portal ID, version, capture time, byte count, and an estimated
+  token count in the popup.
+- **Copy** puts the response body on the clipboard. With every checkbox off, verbatim: no
   pretty-printing, no inflating of embedded JSON.
-- **Download** saves the same bytes as `YYYY-MM-DD-{flowId}.json` (local date).
+- **Download** saves the same bytes as `YYYY-MM-DD-{flowId}.json` (local date), plus a
+  suffix naming whatever was applied.
 - **Trim to workflow logic**, an optional checkbox. Roughly 37 percent smaller, 42 with the
   HTML toggle. See below.
+- **Add editor numbers** and **Add AI context**, two more checkboxes, both about handing the
+  file to a person or a model. See below.
 - **Refresh** refetches saved state from HubSpot, from the content script so cookies ride
   along. A failed refresh never overwrites the capture you already have.
 
@@ -60,13 +64,79 @@ is a nuisance; a trimmed file that silently lost fields the rules never reached 
 
 ### Strip HTML from email bodies
 
-A second checkbox, only available on top of a trim, so that with trimming off the output is
-byte-identical to what HubSpot sent, always. It converts rather than deletes: `<strong>` to
-`**`, list items to bullets, links to markdown. Merge tokens are text rather than markup and
-are untouched either way.
+A second checkbox, only available on top of a trim. It converts rather than deletes:
+`<strong>` to `**`, list items to bullets, links to markdown. Merge tokens are text rather
+than markup and are untouched either way.
 
 This one rewrites values, so it cannot carry the property above. That is the entire reason
-it is a separate toggle.
+it is a separate toggle, and why it rides on top of the trim rather than on raw output.
+
+### Add editor numbers
+
+The workflow editor labels every card on the canvas with a number, and those numbers appear
+nowhere in the JSON. This computes them and appends each one to its action as a `uiNumber`
+field, so a model handed the file can say "action 12" and mean the card you are looking at.
+
+The numbers are the breadth-first reading order of the STANDARD-edge tree from
+`firstActionId`, which is what the editor paints. They are computed from the capture, never
+fetched. They are also volatile: adding, moving, or removing an action renumbers everything
+after it, so they are valid for one capture only. `actionId` is the stable handle, and the
+field is named to keep that distinction visible.
+
+Works with or without a trim. Each number is inserted into the text immediately before its
+action's closing brace, rather than by reparsing and rewriting the document, so on an
+untrimmed capture every original byte survives: same whitespace, same key order, same number
+formatting. Strip the inserted spans and you have the capture back exactly.
+
+If the graph has a connection shape the walker does not recognize, or an action it cannot
+reach, the checkbox withdraws rather than numbering some cards and not others.
+
+### Add AI context
+
+Inserts an `_aiContext` object as the first key of the export: what the file is, when it was
+captured and from what (editor load, save, or refresh), the flow and portal it belongs to,
+which of these options ran, and a short set of instructions for whoever reads it next. The
+instructions are mostly about the distinction above: refer to a card by `uiNumber` when
+talking to a person, use `actionId` when correlating across versions.
+
+Like the editor numbers, this works with trimming off, because it does not rewrite anything.
+The block is spliced in as text after the opening brace, so every original byte survives
+untouched. Delete that one key and you have the bytes you would have had without it, exactly.
+
+The block never claims the file is current: it states the capture time and says that unsaved
+editor edits are not in it. It withdraws if the body is not a JSON object, or if the payload
+already carries an `_aiContext` key.
+
+### What the checkboxes cost you
+
+**With every checkbox off, Copy and Download give you byte-identical bytes to what HubSpot
+sent, always.** Ticking a box is the only way to change that, and every processed file says
+so in its name:
+
+| Applied | Filename suffix |
+| --- | --- |
+| nothing | none |
+| editor numbers | `-numbered` |
+| AI context | `-ai` |
+| trim | `-trimmed` |
+| trim, HTML strip | `-trimmed-stripped` |
+| everything | `-trimmed-stripped-numbered-ai` |
+
+The two additive options are **insertions, not rewrites**. Only trimming and HTML stripping
+change what is already in the file, and they are the only two that need one another. So the
+sharper version of the guarantee is: **without a trim, nothing the extension does removes or
+alters a single byte HubSpot sent.** It can only add, and both additions are removable.
+
+The extension writes exactly two keys into the JSON itself, `uiNumber` and `_aiContext`,
+each behind its own checkbox and its own suffix. Nothing else it does is in-band.
+
+That last claim is checked mechanically, not by memory. The list of ways an export can
+differ from the capture lives in one table in `packages/core/src/ai-context.js`, the popup
+takes its filename suffixes, its status text, and the flags it reports from that table, and
+`npm run check:ai-context` fails the build if a new export option ever appears in the popup
+without an entry there. The tests fail too, if an entry exists but has nothing to say for
+itself. A block that quietly describes the file as it was one feature ago is the exact
+failure this is built to make impossible.
 
 ### It is not scrubbing
 
@@ -113,7 +183,7 @@ already open when you installed needs a reload.
 ## Repo layout
 
 ```
-packages/core/          normalize, summary, and later diff and graph walk. pure.
+packages/core/          summary, trim, html strip, numbers, AI context, span scan. pure.
 packages/capture/       MAIN-world interceptor + isolated-world bridge. shared.
 apps/free/              manifest, popup. hubspot.com only. no network.
 tools/                  build, icon generation, the CI safety checks.
@@ -151,8 +221,9 @@ These two files cannot be merged.
 Fixtures live in [`packages/core/__fixtures__/`](packages/core/__fixtures__/README.md), and
 **everything committed there is synthetic.** Three of them are scrubbed copies of real
 captures: structure, key order, and HubSpot vocabulary exactly as returned, with every
-identifier and every piece of authored content replaced. The fourth is entirely
-hand-authored and exercises the cases where a trim rule must *not* fire.
+identifier and every piece of authored content replaced. The other two are entirely
+hand-authored: one exercises the cases where a trim rule must *not* fire, the other is built
+so that every wrong graph traversal produces a different set of editor numbers.
 
 Two rules, both enforced rather than remembered:
 

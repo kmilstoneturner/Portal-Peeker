@@ -40,4 +40,11 @@ jobs:
       - name: No real portal data in tracked files
         run: npm run check:no-portal-data
 
+      # The AI context block describes what the export did to the file. This
+      # fails when the popup grows an export option that the block's
+      # MODIFICATIONS table has never heard of, because the block would then
+      # describe the file as it was one feature ago and look complete doing it.
+      - name: The AI context block still describes every export option
+        run: npm run check:ai-context
+
       - run: npm test

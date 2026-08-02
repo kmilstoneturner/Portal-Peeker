@@ -45,34 +45,47 @@ const EMPTY = {
  *
  * Actions and data sources carry flowId too (findings section 3, "strip for
  * diff, keep for export"), hence the name/actions corroboration.
+ *
+ * The path back to the flow comes out with it, as object keys and array
+ * indices. Anything that wants to edit the text rather than the parsed value
+ * needs it to find the same object again (see json-span.js).
  */
 export function findFlow(root) {
-  const queue = [{ node: root, depth: 0 }];
+  const queue = [{ node: root, depth: 0, path: [] }];
   let fallback = null;
   let guard = 0;
 
   while (queue.length && guard++ < 500) {
-    const { node, depth } = queue.shift();
+    const { node, depth, path } = queue.shift();
     if (!node || typeof node !== 'object' || depth > 4) continue;
 
     if (Array.isArray(node)) {
-      for (const item of node.slice(0, 25)) queue.push({ node: item, depth: depth + 1 });
+      node.slice(0, 25).forEach((item, index) => {
+        queue.push({ node: item, depth: depth + 1, path: [...path, index] });
+      });
       continue;
     }
 
     if (node.flowId != null && typeof node.flowId !== 'object') {
       const looksLikeFlow =
         'actions' in node || 'name' in node || 'isClassicWorkflow' in node;
-      if (looksLikeFlow) return { flow: node, direct: node === root };
-      if (!fallback) fallback = node;
+      if (looksLikeFlow) return { flow: node, direct: node === root, path };
+      if (!fallback) fallback = { flow: node, direct: false, path };
     }
 
-    for (const value of Object.values(node)) {
-      if (value && typeof value === 'object') queue.push({ node: value, depth: depth + 1 });
+    for (const [key, value] of Object.entries(node)) {
+      // Never descend into our own context block (see ai-context.js). It
+      // records the flow's ID and name, so on an envelope payload, whose root
+      // carries no flowId, the block would otherwise be found before the flow
+      // it describes.
+      if (key === '_aiContext') continue;
+      if (value && typeof value === 'object') {
+        queue.push({ node: value, depth: depth + 1, path: [...path, key] });
+      }
     }
   }
 
-  return fallback ? { flow: fallback, direct: false } : null;
+  return fallback;
 }
 
 function countActions(actions) {
