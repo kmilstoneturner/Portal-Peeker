@@ -9,29 +9,48 @@
 // SETTINGS, MODIFICATIONS, and protocol.js, for the same reason: two sides of a
 // contract written out twice drift apart.
 //
-// WHY THIS SURFACE IS HARDER THAN THE SETTINGS TABLE
+// THE RULE, RESTATED (ADR-010)
 //
-// On the property settings page every source carries a prefix, so an id can be
-// recognised on sight. Here the primary source is the bare property name and
-// nothing else:
+// ADR-009 said two independent sources must agree before a name is shown. Its
+// reason was the failure mode: when HubSpot changes an attribute the result must
+// be a missing line, never a confident wrong one. Reading three record surfaces
+// showed that "two sources" was the mechanism, not the rule. The rule is:
 //
-//   <span data-test-id="lifecyclestage">
+//   THE NAME MUST BE SELF-IDENTIFYING.
 //
-// The same page carries data-test-id="deals", "tasks", "contacts", and
-// "dashboards" on nav chrome, and "badge" and "dropdown-caret" nested inside a
-// property's own value. Every one of those is a well-formed property name, and a
-// character-shape rule cannot separate them from a real one, because HubSpot
-// property names may contain hyphens: `label-foo` in the settings fixture is
-// exactly that. So on this surface, structure does the work that a prefix does
-// on the other one, and it does it three times over before a name is read:
+// A prefixed id announces what it is, so it fails safe on its own: rename
+// `property-input-` and the selector matches nothing. A BARE id announces
+// nothing, and this page carries data-test-id="deals", "tasks", "contacts", and
+// "dashboards" on nav chrome, plus "badge" and "dropdown-caret" nested inside a
+// property's own value. Every one is a well-formed property name, and no
+// character-shape rule separates them from a real one, because HubSpot names may
+// contain hyphens (`label-foo` in the settings fixture is exactly that).
 //
-//   1. the container must be the properties card for THIS page's object,
-//   2. the row must be a DIRECT child of that card's list,
-//   3. the row must carry the per-row marker HubSpot puts on every one.
+// So the two shapes below are not a strong rule and a weak one. They are two
+// ways of reaching the same guarantee:
 //
-// Only then do the two name sources have to agree. That last step is what
-// catches `badge`, which sits inside lifecyclestage's value and would survive
-// steps 1 to 3 if a subtree query ever replaced the direct-child rule.
+//   NAME_FROM.CROSS_CHECK  the row's name is bare, so a second prefixed source
+//                          must agree. Used by the Key information card, where
+//                          structure also does work a prefix cannot: the right
+//                          card, a direct child of its list, carrying the per-row
+//                          marker, and only then the two names compared.
+//
+//   NAME_FROM.PREFIX       the row's own id carries the prefix, so it identifies
+//                          itself. Used by the All properties panel and the
+//                          highlights strip. Still container scoped, because a
+//                          prefix says "this is a property input", not "this is
+//                          a property input belonging to the record you are
+//                          looking at".
+//
+// WHAT CANNOT BE DONE, AND WHY IT IS NOT LISTED BELOW
+//
+// The Contact profile card (data-card-type="PROPERTIES_LIST") renders its rows
+// as [data-test-id="crm-property-list-item"] with the internal name nowhere in
+// the DOM. Every attribute on every row was enumerated on a live record: there
+// are per-render counters (FormControl18) and the human label, and nothing else.
+// It is not in this table because it cannot be, not because nobody got to it.
+// Association cards are absent for a different reason: their property ids belong
+// to the ASSOCIATED object, not the record on screen.
 //
 // Everything is exported inline. A trailing `export { ... }` block is not
 // bundlable: see the note in test-id.js.
@@ -46,6 +65,28 @@ const OBJECT_TYPE = /^[^/]+\/(\d+-\d+)(?:\/|$)/;
 const PATH_OBJECT_TYPE = /\/record\/(\d+-\d+)(?:\/|$)/;
 
 const PROPERTY_INPUT_PREFIX = 'property-input-';
+const HIGHLIGHT_PREFIX = 'highlight-property-display-';
+
+/** How a surface derives a name. See the note at the top of this file. */
+export const NAME_FROM = {
+  CROSS_CHECK: 'cross-check',
+  PREFIX: 'prefix',
+};
+
+/**
+ * Where a surface's objectTypeId comes from.
+ *
+ * CONTAINER is stronger and is used wherever the container declares one: the id
+ * has to agree with the URL, so a card left over from another record is turned
+ * away. PATH is for containers that declare nothing, where the page's own URL is
+ * the only statement of which object is on screen. The All properties panel is a
+ * modal with no card id, and the highlights card id (OBJECT_HIGHLIGHT-FAS-0-1-1)
+ * hyphenates where the grammar wants slashes and so parses as nothing.
+ */
+export const OBJECT_TYPE_FROM = {
+  CONTAINER: 'container',
+  PATH: 'path',
+};
 
 /**
  * Every record-page surface, and the selectors that find one property on it.
@@ -58,6 +99,8 @@ const PROPERTY_INPUT_PREFIX = 'property-input-';
 export const SURFACES = [
   {
     id: 'sidebar-properties',
+    nameFrom: NAME_FROM.CROSS_CHECK,
+    objectTypeFrom: OBJECT_TYPE_FROM.CONTAINER,
 
     // Every card on a record page carries data-card-type and data-card-id,
     // whatever kind of card it is, so this scopes on the generic axis rather
@@ -86,8 +129,10 @@ export const SURFACES = [
     // position: it is a <span> while the field displays and a <button> one layer
     // deeper (under an extra DisplayOptimizedFormControl) while it is being
     // edited. Both were observed on the same field.
+    rowAttribute: 'data-test-id',
     source: `[data-selenium-test^="${PROPERTY_INPUT_PREFIX}"]`,
     sourceAttribute: 'data-selenium-test',
+    prefix: PROPERTY_INPUT_PREFIX,
 
     // Label and value are siblings inside a class-only wrapper, so neither can
     // be selected on. This sits between them and is the only node in that
@@ -95,6 +140,56 @@ export const SURFACES = [
     // name exactly where the settings table puts it: under the label, above the
     // value. Present on every row observed, including read-only ones.
     anchor: '[data-test-id="hover-content-wrapper"]',
+  },
+
+  {
+    // The "View all properties" panel. 78 rows on the record this was read from,
+    // across 13 property groups, and the group accordions need no handling of
+    // their own: the rows carry everything and a collapsed group simply has none
+    // in the DOM yet, which the observer picks up when it expands.
+    id: 'all-properties',
+    nameFrom: NAME_FROM.PREFIX,
+    objectTypeFrom: OBJECT_TYPE_FROM.PATH,
+
+    // A modal, rendered outside the card tree, so it has no data-card-type and
+    // declares no object. Scoping still matters and is doing real work here: an
+    // association card elsewhere on the page carries
+    // data-test-id="property-input-name" for the associated COMPANY's name
+    // property, which this panel's scope is what excludes.
+    container: '[data-test-id="all-properties-panel"]',
+
+    // No list and no per-row marker: the row is the prefixed node itself, so
+    // there is no bare id needing structural corroboration.
+    row: `[data-test-id^="${PROPERTY_INPUT_PREFIX}"]`,
+    rowAttribute: 'data-test-id',
+    prefix: PROPERTY_INPUT_PREFIX,
+
+    anchor: '[data-test-id="hover-content-wrapper"]',
+  },
+
+  {
+    // The highlights strip across the top of a record.
+    id: 'record-highlights',
+    nameFrom: NAME_FROM.PREFIX,
+    objectTypeFrom: OBJECT_TYPE_FROM.PATH,
+
+    // Scoped to the highlight card's content rather than to [data-card-type]:
+    // that card's id is OBJECT_HIGHLIGHT-FAS-0-1-1, which hyphenates where the
+    // grammar wants slashes and so declares no object type at all.
+    container: '[data-test-id="record-highlight-content"]',
+
+    // Only the -display- prefix. The sibling highlight-property-item- prefix
+    // looks like a second source and is not one: on the record this was read
+    // from, one of them is `jobtitle-and-company`, a composite of two properties
+    // that is not a property name. Requiring the two to agree would drop real
+    // rows and prove nothing, which is why this surface reads one prefixed id.
+    row: `[data-test-id^="${HIGHLIGHT_PREFIX}"]`,
+    rowAttribute: 'data-test-id',
+    prefix: HIGHLIGHT_PREFIX,
+
+    // The strip has no label/value pair to sit between, so the name goes
+    // immediately before the value itself.
+    anchor: null,
   },
 ];
 
@@ -135,12 +230,19 @@ export function parseContainerId(value) {
  *
  * @returns {{ok: true, objectTypeId: string} | {ok: false, reason: string}}
  */
-export function readSurfaceContainer({ containerId, pathname } = {}) {
-  const container = parseContainerId(containerId);
-  if (!container.ok) return container;
-
+export function readSurfaceContainer({ surface, containerId, pathname } = {}) {
   const path = parseRecordPath(pathname);
   if (!path.ok) return path;
+
+  // Nothing to cross-check against. The URL is the only statement of which
+  // object is on screen, and a surface only opts into this when its container
+  // genuinely declares nothing.
+  if (surface && surface.objectTypeFrom === OBJECT_TYPE_FROM.PATH) {
+    return { ok: true, objectTypeId: path.objectTypeId };
+  }
+
+  const container = parseContainerId(containerId);
+  if (!container.ok) return container;
 
   if (container.objectTypeId !== path.objectTypeId) return refuse('object-type-mismatch');
 
@@ -156,7 +258,22 @@ export function readSurfaceContainer({ containerId, pathname } = {}) {
  * @returns {{ok: true, propertyName: string} | {ok: false, reason: string}}
  */
 export function parsePropertyInputTestId(value) {
-  const name = afterPrefix(value, PROPERTY_INPUT_PREFIX);
+  return parsePrefixedName(value, PROPERTY_INPUT_PREFIX);
+}
+
+/**
+ * Read a name out of any prefixed id.
+ *
+ * This is the whole of NAME_FROM.PREFIX. It looks thin next to the cross-check
+ * below, and the reason it can be is the prefix: an id that does not start with
+ * one is refused, so a nav item or an engagement button never gets this far. The
+ * failure mode when HubSpot renames the prefix is that nothing matches, which is
+ * a missing line and not a wrong one.
+ *
+ * @returns {{ok: true, propertyName: string} | {ok: false, reason: string}}
+ */
+export function parsePrefixedName(value, prefix) {
+  const name = afterPrefix(value, prefix);
   const problem = nameProblem(name);
   if (problem) return refuse(problem === 'no-prefix' ? 'not-a-property-input' : problem);
   return { ok: true, propertyName: name };
@@ -172,16 +289,38 @@ export function parsePropertyInputTestId(value) {
  *
  * @returns {{ok: true, propertyName: string} | {ok: false, reason: string}}
  */
-export function readRecordRow({ rowTestId, inputTestId } = {}) {
+export function readRecordRow({ rowTestId, inputTestId, prefix = PROPERTY_INPUT_PREFIX } = {}) {
   if (typeof rowTestId !== 'string') return refuse('no-row-name');
 
   const problem = nameProblem(rowTestId);
   if (problem) return refuse(problem);
 
-  const input = parsePropertyInputTestId(inputTestId);
+  const input = parsePrefixedName(inputTestId, prefix);
   if (!input.ok) return input;
 
   if (input.propertyName !== rowTestId) return refuse('name-mismatch');
 
   return { ok: true, propertyName: rowTestId };
+}
+
+/**
+ * Read one row's name, whichever way its surface derives one.
+ *
+ * The single place that knows both shapes exist, so record-properties.js walks
+ * elements and never branches on grammar.
+ *
+ * @returns {{ok: true, propertyName: string} | {ok: false, reason: string}}
+ */
+export function readRowName(surface, { rowValue, sourceValue } = {}) {
+  if (!surface) return refuse('no-surface');
+
+  if (surface.nameFrom === NAME_FROM.PREFIX) {
+    return parsePrefixedName(rowValue, surface.prefix);
+  }
+
+  return readRecordRow({
+    rowTestId: rowValue,
+    inputTestId: sourceValue,
+    prefix: surface.prefix,
+  });
 }

@@ -56,7 +56,7 @@ annualrevenue
 Single-line text
 ```
 
-On a record page the same name appears under each field's label in the properties card:
+On a record page the same name appears under each field's label:
 
 ```
 Lead Status
@@ -64,19 +64,29 @@ hs_lead_status
 --
 ```
 
+Three places there: the **Key information** card in the left sidebar, the **View all properties**
+panel including every property group in it, and the **highlights strip** at the top of the
+record.
+
 That name is already on the page. HubSpot writes it into the page's own HTML attributes and
 simply does not display it, so this reads what is in front of you and makes it legible.
 **No request is made.** It is display only, it is undone the moment you untick the box, and
 it is off until you turn it on.
 
 The honest limit: this reads an internal HubSpot UI with no version and no stability promise.
-Two independent copies of the name have to agree before a field is annotated, so when HubSpot
-changes its markup **the annotation disappears rather than showing you the wrong name**. A row
-it cannot read with confidence is skipped and the rest of the page is still annotated.
+The name has to identify itself before it is shown, so when HubSpot changes its markup **the
+annotation disappears rather than showing you the wrong name**. Anything it cannot read with
+confidence is skipped and the rest of the page is still annotated.
 
-That rule costs a little coverage, deliberately. On a record page some fields render their
-value through a control that carries only one copy of the name, and the contact owner field is
-one of them, so it is left unannotated rather than guessed at.
+That rule costs coverage, deliberately, and there are two gaps worth naming.
+
+**The Contact profile card is not annotated at all.** HubSpot does not put the internal name
+in the page for that card. There is no attribute carrying it, only the label you can already
+see, so there is nothing to read. This is a limit of the approach, not a to-do.
+
+**The contact owner field is skipped** in the Key information card. Its control renders
+differently from every other field there and carries the name only once, and one unconfirmed
+copy is not enough on a surface where the surrounding markup would let a wrong guess through.
 
 Settings are stored in `chrome.storage.local`, which is the one permission the extension asks
 for. See the privacy note above.

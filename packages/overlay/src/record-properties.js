@@ -13,10 +13,8 @@
 // card is the whole reason its bare names can be trusted.
 
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
-import { SURFACES, parseRecordPath, readRecordRow, readSurfaceContainer } from './record-surfaces.js';
+import { SURFACES, parseRecordPath, readRowName, readSurfaceContainer } from './record-surfaces.js';
 import { placeApiName, removeApiNames } from './api-name-node.js';
-
-const ROW_NAME_ATTRIBUTE = 'data-test-id';
 
 /** The path of the document being annotated, or '' where there is none. */
 function pathOf(root) {
@@ -66,7 +64,10 @@ export function annotateRecordProperties(root) {
       let card;
       try {
         card = readSurfaceContainer({
-          containerId: container.getAttribute(surface.containerAttribute),
+          surface,
+          containerId: surface.containerAttribute
+            ? container.getAttribute(surface.containerAttribute)
+            : null,
           pathname,
         });
       } catch {
@@ -79,8 +80,13 @@ export function annotateRecordProperties(root) {
       if (!card.ok) continue;
       result.cards += 1;
 
-      for (const list of container.querySelectorAll(surface.list)) {
-        for (const row of list.querySelectorAll(surface.row)) {
+      // A surface only declares a list when its rows need scoping to direct
+      // children of one. Where the row id identifies itself, the container is
+      // scope enough.
+      const scopes = surface.list ? container.querySelectorAll(surface.list) : [container];
+
+      for (const scope of scopes) {
+        for (const row of scope.querySelectorAll(surface.row)) {
           result.rows += 1;
           try {
             if (!annotateRow(row, surface, card.objectTypeId)) {
@@ -111,20 +117,33 @@ export function annotateRecordProperties(root) {
  */
 function annotateRow(row, surface, objectTypeId) {
   // The marker HubSpot puts on every property row, required as a direct child.
-  // This is what a nested decoy cannot fake at the same depth.
-  if (!row.querySelector(surface.rowMarker)) return false;
+  // This is what a nested decoy cannot fake at the same depth. Only surfaces
+  // whose row id is bare declare one: where the id carries a prefix it already
+  // says what it is, and demanding a marker as well would cost real rows to
+  // prove something the prefix has proved.
+  if (surface.rowMarker && !row.querySelector(surface.rowMarker)) return false;
 
-  const source = row.querySelector(surface.source);
-  const read = readRecordRow({
-    rowTestId: row.getAttribute(ROW_NAME_ATTRIBUTE),
-    inputTestId: source ? source.getAttribute(surface.sourceAttribute) : null,
+  const source = surface.source ? row.querySelector(surface.source) : null;
+  const read = readRowName(surface, {
+    rowValue: row.getAttribute(surface.rowAttribute),
+    sourceValue: source ? source.getAttribute(surface.sourceAttribute) : null,
   });
   if (!read.ok) return false;
 
-  // No anchor means nowhere to put the name. Unlike the settings table, where
-  // the anchor was also the second source and so could not go missing on its
-  // own, here it is a third element and has to be checked for.
-  const anchor = row.querySelector(surface.anchor);
+  // The anchor does two jobs, and the second one is not obvious.
+  //
+  // It is where the name goes. It is ALSO the proof that this row is a rendered
+  // property rather than something else wearing the prefix. On the All properties
+  // panel, measured live: 101 nodes match the row selector, 33 carry the anchor,
+  // 33 carry a label, and it is the same 33. The other 68 are
+  // `property-input-skeleton` loading placeholders and one
+  // `property-input-phone-button`, a textarea nested inside the fax row that
+  // would otherwise be annotated "phone-button".
+  //
+  // So do not turn this into a fallback that puts the name somewhere else when
+  // the anchor is missing. On a single-source surface it is the check standing
+  // between us and a confidently wrong line.
+  const anchor = surface.anchor ? row.querySelector(surface.anchor) : row;
   if (!anchor) return false;
 
   return placeApiName(anchor, read.propertyName, objectTypeId);

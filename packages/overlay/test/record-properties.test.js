@@ -43,14 +43,20 @@ const names = () => [...document.querySelectorAll(API_NAME_SELECTOR)].map((n) =>
 const rowFor = (name) => document.querySelector(`span[data-test-id="${name}"]`);
 const anchorIn = (row) => row.querySelector('[data-test-id="hover-content-wrapper"]');
 
-/** Every name the fixture is built to yield, in document order. */
-const ANNOTATED = [
+/** Every name the Key information card yields, in document order. */
+const SIDEBAR = [
   'annualrevenue',
   'hs_lead_status',
   'label-foo',
   'notes_last_contacted',
   'hs_pipeline_stage',
 ];
+
+/** The highlights strip and the All properties panel, both NAME_FROM.PREFIX. */
+const HIGHLIGHTS = ['hs_full_name_or_email', 'jobtitle', 'email'];
+const MODAL = ['annualrevenue', 'label-foo', 'hs_email_domain', 'fax'];
+
+const ANNOTATED = [...SIDEBAR, ...HIGHLIGHTS, ...MODAL];
 
 beforeEach(() => {
   at(RECORD_URL);
@@ -83,7 +89,7 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
 
   it('places the name immediately before the anchor, between label and value', () => {
     annotateRecordProperties(document);
-    for (const name of ANNOTATED) {
+    for (const name of SIDEBAR) {
       const anchor = anchorIn(rowFor(name));
       expect(anchor.previousElementSibling.className, name).toBe('pp-api-name');
       expect(anchor.previousElementSibling.textContent, name).toBe(name);
@@ -98,11 +104,15 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
   });
 
   it('reports what it did', () => {
+    // 3 containers: the Key information card, the highlights strip, and the
+    // All properties panel. 9 + 3 + 8 rows across them, the panel's eight being
+    // four real ones plus the two skeletons and the nested control that only the
+    // anchor check turns away.
     expect(annotateRecordProperties(document)).toEqual({
-      cards: 1,
-      rows: 9,
-      inserted: 5,
-      skipped: 4,
+      cards: 3,
+      rows: 20,
+      inserted: 12,
+      skipped: 8,
     });
   });
 
@@ -111,8 +121,8 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
   // a custom card becomes another entry in the table rather than another
   // selector nobody remembers to add.
   it('reads only the card whose objectTypeId matches the page', () => {
-    expect(annotateRecordProperties(document).cards).toBe(1);
     expect(names()).not.toContain('no_object_type');
+    expect(names()).not.toContain('wrong_object');
   });
 
   it('annotates a read-only row like any other', () => {
@@ -125,6 +135,78 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
   it('annotates a row that is being edited', () => {
     annotateRecordProperties(document);
     expect(names()).toContain('hs_pipeline_stage');
+  });
+});
+
+// NAME_FROM.PREFIX. These surfaces read one id because it identifies itself:
+// rename the prefix and the selector matches nothing, which is a missing line
+// rather than a wrong one. That is the guarantee ADR-009 was after, reached by a
+// prefix instead of by agreement. See ADR-010.
+describe('the surfaces that read one prefixed id', () => {
+  it('annotates the All properties panel across its groups', () => {
+    annotateRecordProperties(document);
+    for (const name of MODAL) expect(names(), name).toContain(name);
+  });
+
+  it('annotates the highlights strip', () => {
+    annotateRecordProperties(document);
+    for (const name of HIGHLIGHTS) expect(names(), name).toContain(name);
+  });
+
+  it('strips the prefix by length here too', () => {
+    annotateRecordProperties(document);
+    const row = document.querySelector('[data-test-id="property-input-label-foo"]');
+    expect(anchorIn(row).previousElementSibling.textContent).toBe('label-foo');
+  });
+
+  // The strip has no label/value pair to sit between, so the name goes
+  // immediately before the value node itself.
+  it('places a highlight name before the value node', () => {
+    annotateRecordProperties(document);
+    const row = document.querySelector('[data-test-id="highlight-property-display-jobtitle"]');
+    expect(row.previousElementSibling.className).toBe('pp-api-name');
+    expect(row.previousElementSibling.textContent).toBe('jobtitle');
+  });
+
+  // highlight-property-item- looks like a second source and is not one: this id
+  // is two properties joined. It is never selected on.
+  it('never reads the composite highlight-property-item id', () => {
+    annotateRecordProperties(document);
+    expect(names()).not.toContain('jobtitle-and-company');
+  });
+
+  // The prefix says "a property input". Only the container says "a property
+  // input belonging to the record you are looking at".
+  it('leaves an association card property-input alone', () => {
+    annotateRecordProperties(document);
+    expect(names()).not.toContain('name');
+  });
+
+  it('skips a prefixed row with nowhere to put the name', () => {
+    annotateRecordProperties(document);
+    expect(names()).not.toContain('no_anchor_modal');
+  });
+
+  // Both measured on a live panel. The anchor is what excludes them, which is
+  // why it must never become a fallback that puts the name somewhere else.
+  it('skips loading placeholders wearing the prefix', () => {
+    annotateRecordProperties(document);
+    expect(names()).not.toContain('skeleton');
+  });
+
+  it('skips a control nested inside another property row', () => {
+    annotateRecordProperties(document);
+    expect(names()).not.toContain('phone-button');
+    // ...and the row it is nested in is still annotated correctly.
+    expect(names()).toContain('fax');
+  });
+
+  // The panel declares no object of its own, so the URL is the only statement
+  // of which record is on screen. Off a record page it must read nothing.
+  it('reads nothing in the panel when the page is not a record', () => {
+    at(LIST_URL);
+    annotateRecordProperties(document);
+    expect(names()).toEqual([]);
   });
 });
 
@@ -215,8 +297,10 @@ describe('running more than once', () => {
 
     expect(annotateRecordProperties(document).inserted).toBe(0);
     expect(anchorIn(row).previousElementSibling.textContent).toBe('swapped_in');
-    expect(names()).not.toContain('annualrevenue');
     expect(names().filter((n) => n === 'swapped_in')).toHaveLength(1);
+    // Still one annualrevenue on the page, but it is the All properties row now,
+    // not this one. The reused sidebar row was corrected rather than duplicated.
+    expect(names().filter((n) => n === 'annualrevenue')).toHaveLength(1);
   });
 });
 
@@ -225,9 +309,9 @@ describe('removal puts the page back', () => {
     const before = serialize();
 
     annotateRecordProperties(document);
-    expect(document.querySelectorAll(API_NAME_SELECTOR).length).toBe(5);
+    expect(document.querySelectorAll(API_NAME_SELECTOR).length).toBe(ANNOTATED.length);
 
-    expect(removeApiNames(document)).toBe(5);
+    expect(removeApiNames(document)).toBe(ANNOTATED.length);
     expect(document.querySelectorAll(API_NAME_SELECTOR).length).toBe(0);
 
     // The inverse property this repo uses on its JSON insertions, applied to the

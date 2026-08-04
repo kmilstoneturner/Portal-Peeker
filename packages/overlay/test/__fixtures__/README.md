@@ -70,3 +70,26 @@ one attribute.
 Inert presentation wrappers inside the label are collapsed. No rule reads them
 and depth there changes no behaviour, unlike the marker depth and the anchor
 position, which are kept exactly.
+
+### The two prefixed surfaces
+
+The highlights strip and the All properties panel are in the same file, because
+the point of several of these rows is what happens when both grammars are on one
+page. Both read a single **prefixed** id (`NAME_FROM.PREFIX`), so they carry no
+bare name, no second source, and no per-row marker.
+
+| Row | Why it exists |
+|---|---|
+| `highlight-property-display-{hs_full_name_or_email, jobtitle, email}` | The strip's happy path. It has no label/value pair, so the name goes immediately before the value node. |
+| `highlight-property-item-jobtitle-and-company` | Looks like a second source and is not one: the id is two properties joined, not a property name. Never selected on, which is why the strip reads one id rather than requiring a pair to agree. |
+| `property-input-{annualrevenue, hs_email_domain}` in two `group-accordion-*` groups | The panel's happy path, across groups. Groups need no handling of their own: a collapsed one has no rows until it opens, and the observer catches them then. |
+| `property-input-label-foo` | The prefix trap again, on the surface that has only the prefix to work with. |
+| `property-input-no_anchor_modal` | Readable, nowhere to put the name. |
+| `property-input-skeleton` ×2 | Loading placeholders. The panel is virtualized, and a live record had **67** of these on screen at once, every one parsing as a property named "skeleton". |
+| `property-input-phone-button` inside `property-input-fax` | A control nested in another property's row, wearing the prefix. Same shape as `badge` inside `lifecyclestage`. Would otherwise annotate the fax row "phone-button". |
+| `property-input-name` in an `ASSOCIATION_V3` card | The associated **company's** `name` property on a contact record. The prefix says "a property input"; only the container scope says "one belonging to the record you are looking at". |
+
+The last three are why the anchor is a **validity check** and not merely an
+insertion point. Measured on a live panel: 101 nodes match the row selector, 33
+carry the anchor, 33 carry a label, and it is the same 33. Turning the anchor
+into a fallback that places the name somewhere else would ship all of them.

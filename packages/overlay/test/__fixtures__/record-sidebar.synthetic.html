@@ -86,7 +86,18 @@
     is right today. If association cards are ever annotated they will need their
     own entry with their own idea of which object type is correct.
   -->
-  <div data-card-type="ASSOCIATION_V3" data-card-id="ASSOCIATION_V3/0-2"></div>
+  <div data-card-type="ASSOCIATION_V3" data-card-id="ASSOCIATION_V3/0-2">
+    <!--
+      A real one, and the reason the All properties surface is container scoped
+      even though its row ids carry a prefix. This is the associated COMPANY's
+      `name` property sitting on a contact record. The prefix says "a property
+      input"; only the scope says "a property input belonging to the record you
+      are looking at".
+    -->
+    <div data-test-id="property-input-name">
+      <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+    </div>
+  </div>
 
   <!-- The properties card for this page's object. -->
   <div data-card-type="PROPERTIES_V3" data-card-id="PROPERTIES_V3/0-1/V2" data-selenium-test="properties-card-content">
@@ -296,6 +307,103 @@
           </div>
         </span>
       </ul>
+    </div>
+  </div>
+</div>
+
+<!--
+  The highlights strip. NAME_FROM.PREFIX: the row id identifies itself, so there
+  is no bare name needing a second source and no per-row marker to demand.
+
+  Its card id is OBJECT_HIGHLIGHT-FAS-0-1-1, which hyphenates where the grammar
+  wants slashes, so it declares no object type and the scope is the highlight
+  card's content instead, with the objectTypeId taken from the URL.
+-->
+<div data-card-type="OBJECT_HIGHLIGHT" data-card-id="OBJECT_HIGHLIGHT-FAS-0-1-1">
+  <div data-test-id="crm-card-content" data-selenium-test="card-id-OBJECT_HIGHLIGHT-FAS-0-1-1">
+    <div data-test-id="record-highlight-content">
+      <div data-test-id="record-highlight-main-content">
+        <div data-test-id="highlight-record-label" data-selenium-test="highlightTitle">
+          <span data-test-id="highlight-property-display-hs_full_name_or_email">Sample Person</span>
+        </div>
+        <div data-test-id="properties-list">
+          <!--
+            The composite. highlight-property-item- looks like a second source
+            and is not one: this id is two properties joined, not a property
+            name. It is never selected on, which is why the strip reads one
+            prefixed id rather than requiring the pair to agree.
+          -->
+          <div data-test-id="highlight-property-item-jobtitle-and-company">
+            <span data-locale-at-render="en-us" data-key="ObjectHighlightCard.jobtitleAndCompany">
+              <span data-test-id="highlight-property-display-jobtitle">Head of Something</span>
+            </span>
+          </div>
+          <div data-test-id="highlight-property-item-email">
+            <span data-test-id="highlight-property-display-email">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!--
+  The "View all properties" panel. A modal, rendered outside the card tree, so it
+  carries no data-card-type and declares no object: the objectTypeId comes from
+  the URL. Rows are the prefixed nodes themselves, grouped by accordions that
+  need no handling of their own, since a collapsed group simply has no rows in
+  the DOM until it opens and the observer catches them when it does.
+-->
+<div data-test-id="all-properties-panel">
+  <div data-test-id="group-accordion-contactinformation">
+    <div data-test-id="property-input-annualrevenue">
+      <label id="m-1" for="m-in-1">Annual revenue</label>
+      <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+      <textarea id="m-in-1" placeholder="--"></textarea>
+    </div>
+
+    <!-- The prefix trap again, on the surface that has only the prefix. -->
+    <div data-test-id="property-input-label-foo">
+      <label id="m-2" for="m-in-2">Label Foo</label>
+      <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+      <textarea id="m-in-2" placeholder="--"></textarea>
+    </div>
+  </div>
+
+  <div data-test-id="group-accordion-emailinformation">
+    <div data-test-id="property-input-hs_email_domain">
+      <label id="m-3" for="m-in-3">Email Domain</label>
+      <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+      <textarea id="m-in-3" placeholder="--"></textarea>
+    </div>
+
+    <!-- Readable, but with nowhere to put the name. -->
+    <div data-test-id="property-input-no_anchor_modal">
+      <label id="m-4" for="m-in-4">No Anchor</label>
+      <textarea id="m-in-4" placeholder="--"></textarea>
+    </div>
+
+    <!--
+      The two decoys the live panel actually contains, and the reason the anchor
+      is a validity check and not just an insertion point. Measured on a real
+      record: 101 nodes match the row selector, 33 carry the anchor, 33 carry a
+      label, and it is the same 33.
+
+      Loading placeholders. The panel is virtualized, so there were 67 of these
+      on screen at once. Every one parses as a property named "skeleton".
+    -->
+    <div data-test-id="property-input-skeleton"><div></div><div></div></div>
+    <div data-test-id="property-input-skeleton"><div></div><div></div></div>
+
+    <!--
+      A control nested INSIDE another property's row, wearing the prefix. Same
+      shape as `badge` inside lifecyclestage on the Key information card, and it
+      would otherwise be annotated "phone-button" on the fax row.
+    -->
+    <div data-test-id="property-input-fax">
+      <label id="m-5" for="m-in-5">Fax</label>
+      <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+      <textarea id="m-in-5" placeholder="--" data-test-id="property-input-phone-button"></textarea>
     </div>
   </div>
 </div>

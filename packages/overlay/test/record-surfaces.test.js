@@ -5,6 +5,8 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  NAME_FROM,
+  OBJECT_TYPE_FROM,
   SURFACES,
   parseContainerId,
   parsePropertyInputTestId,
@@ -185,22 +187,50 @@ describe('readRecordRow', () => {
 });
 
 describe('the SURFACES table', () => {
-  it('declares every field the DOM layer reads', () => {
+  it('declares the fields every surface needs', () => {
     for (const surface of SURFACES) {
-      for (const field of [
-        'id',
-        'container',
-        'containerAttribute',
-        'list',
-        'row',
-        'rowMarker',
-        'source',
-        'sourceAttribute',
-        'anchor',
-      ]) {
+      for (const field of ['id', 'container', 'row', 'rowAttribute', 'prefix', 'nameFrom', 'objectTypeFrom']) {
         expect(typeof surface[field], `${surface.id}.${field}`).toBe('string');
         expect(surface[field], `${surface.id}.${field}`).not.toBe('');
       }
+      expect([NAME_FROM.CROSS_CHECK, NAME_FROM.PREFIX]).toContain(surface.nameFrom);
+      expect([OBJECT_TYPE_FROM.CONTAINER, OBJECT_TYPE_FROM.PATH]).toContain(surface.objectTypeFrom);
+      // Optional, but never something other than a selector when present.
+      expect(['string', 'object'], `${surface.id}.anchor`).toContain(typeof surface.anchor);
+    }
+  });
+
+  // A cross-check surface reads a BARE row id, which identifies nothing on its
+  // own, so it owes the extra apparatus: a second source to agree with, a list
+  // to be a direct child of, and a per-row marker. A prefixed surface owes none
+  // of it, because its id says what it is. Getting this backwards in the table
+  // is how a bare name would quietly ship on one source.
+  it('makes cross-check surfaces carry the structure their bare id needs', () => {
+    for (const surface of SURFACES.filter((s) => s.nameFrom === NAME_FROM.CROSS_CHECK)) {
+      for (const field of ['list', 'rowMarker', 'source', 'sourceAttribute']) {
+        expect(typeof surface[field], `${surface.id}.${field}`).toBe('string');
+      }
+      expect(surface.row, `${surface.id}.row`).toMatch(/^:scope >/);
+      expect(surface.rowMarker, `${surface.id}.rowMarker`).toMatch(/^:scope >/);
+    }
+  });
+
+  // The converse, and the one that matters most: a surface reading a single id
+  // must be reading a PREFIXED one. A prefix that did not end in a separator, or
+  // a row selector matching bare ids, would put this surface back in the
+  // position the Key information card is deliberately not in.
+  it('makes every single-source surface read a prefixed id', () => {
+    for (const surface of SURFACES.filter((s) => s.nameFrom === NAME_FROM.PREFIX)) {
+      expect(surface.prefix, `${surface.id}.prefix`).toMatch(/-$/);
+      expect(surface.row, `${surface.id}.row`).toContain(`^="${surface.prefix}"`);
+      expect(surface.source, `${surface.id}.source`).toBeUndefined();
+    }
+  });
+
+  it('declares a container attribute exactly when it cross-checks the object type', () => {
+    for (const surface of SURFACES) {
+      const needed = surface.objectTypeFrom === OBJECT_TYPE_FROM.CONTAINER;
+      expect(typeof surface.containerAttribute === 'string', `${surface.id}`).toBe(needed);
     }
   });
 
@@ -221,13 +251,4 @@ describe('the SURFACES table', () => {
     }
   });
 
-  // Nested data-test-id values (badge, dropdown-caret, hover-content-wrapper)
-  // are what a subtree query would wrongly offer as rows. The direct-child
-  // combinator is the thing keeping them out, so it is pinned here.
-  it('scopes rows and the row marker to direct children', () => {
-    for (const surface of SURFACES) {
-      expect(surface.row, `${surface.id}.row`).toMatch(/^:scope >/);
-      expect(surface.rowMarker, `${surface.id}.rowMarker`).toMatch(/^:scope >/);
-    }
-  });
 });
