@@ -1,0 +1,199 @@
+<!--
+  Hand authored. Never a paste of a real page.
+
+  Two reasons, both already settled in this repo. A real properties table
+  carries a portal's custom property labels, which are authored content and are
+  never committed. And it carries styled-components class hashes that change on
+  every HubSpot build, which would rot this file into asserting on unstable
+  strings.
+
+  So: the real nesting, the real data-test-id grammar, and no class attributes
+  at all, because nothing in the parser is allowed to select on one.
+
+  Every objectTypeId here is synthetic and deliberately short. Real custom
+  object ids carry enough digits to trip tools/check-no-portal-data.mjs, which
+  scans .html as well as source.
+
+  See __fixtures__/README.md for what each row is for.
+-->
+<table data-test-id="properties-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Group</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td data-test-id="cell-name-0-1/annualrevenue">
+        <div>
+          <div>
+            <span>
+              <span>
+                <span>
+                  <div data-tflex="true">
+                    <div data-tflex="true">
+                      <button data-test-id="property-label-annualrevenue" type="button">
+                        <span><span><span>Annual Revenue</span></span></span>
+                      </button>
+                    </div>
+                    <small data-test-id="property-type-label-annualrevenue">Single-line text</small>
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+          <div order="3">
+            <span>
+              <button data-test-id="property-actions-button-annualrevenue" type="button">More</button>
+            </span>
+          </div>
+        </div>
+      </td>
+      <td data-test-id="cell-group-0-1/annualrevenue"><span>Contact information</span></td>
+    </tr>
+
+    <tr>
+      <td data-test-id="cell-name-0-1/hs_lead_status">
+        <div>
+          <div>
+            <span>
+              <span>
+                <span>
+                  <div data-tflex="true">
+                    <div data-tflex="true">
+                      <button data-test-id="property-label-hs_lead_status" type="button">
+                        <span><span><span>Lead Status</span></span></span>
+                      </button>
+                    </div>
+                    <small data-test-id="property-type-label-hs_lead_status">Dropdown select</small>
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </td>
+      <td data-test-id="cell-group-0-1/hs_lead_status"><span>Contact information</span></td>
+    </tr>
+
+    <tr>
+      <td data-test-id="cell-name-2-98765/my_custom_prop">
+        <div>
+          <div>
+            <span>
+              <span>
+                <span>
+                  <div data-tflex="true">
+                    <div data-tflex="true">
+                      <button data-test-id="property-label-my_custom_prop" type="button">
+                        <span><span><span>My Custom Prop</span></span></span>
+                      </button>
+                    </div>
+                    <small data-test-id="property-type-label-my_custom_prop">Number</small>
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </td>
+      <td data-test-id="cell-group-2-98765/my_custom_prop"><span>Custom information</span></td>
+    </tr>
+
+    <tr>
+      <td data-test-id="cell-name-0-1/label-foo">
+        <div>
+          <div>
+            <span>
+              <span>
+                <span>
+                  <div data-tflex="true">
+                    <div data-tflex="true">
+                      <button data-test-id="property-label-label-foo" type="button">
+                        <span><span><span>Label Foo</span></span></span>
+                      </button>
+                    </div>
+                    <small data-test-id="property-type-label-label-foo">Single-line text</small>
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </td>
+      <td data-test-id="cell-group-0-1/label-foo"><span>Contact information</span></td>
+    </tr>
+
+    <tr>
+      <td data-test-id="cell-name-0-1/mismatch_a">
+        <div>
+          <div>
+            <span>
+              <span>
+                <span>
+                  <div data-tflex="true">
+                    <div data-tflex="true">
+                      <button data-test-id="property-label-mismatch_a" type="button">
+                        <span><span><span>Mismatched Row</span></span></span>
+                      </button>
+                    </div>
+                    <small data-test-id="property-type-label-mismatch_b">Single-line text</small>
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </td>
+      <td data-test-id="cell-group-0-1/mismatch_a"><span>Contact information</span></td>
+    </tr>
+
+    <tr>
+      <td data-test-id="cell-name-0-1/orphan">
+        <div>
+          <div>
+            <span>
+              <span>
+                <span>
+                  <div data-tflex="true">
+                    <div data-tflex="true">
+                      <button data-test-id="property-label-orphan" type="button">
+                        <span><span><span>Orphan Row</span></span></span>
+                      </button>
+                    </div>
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </td>
+      <td data-test-id="cell-group-0-1/orphan"><span>Contact information</span></td>
+    </tr>
+
+    <tr>
+      <td data-test-id="cell-name-broken">
+        <div>
+          <div>
+            <span>
+              <span>
+                <span>
+                  <div data-tflex="true">
+                    <div data-tflex="true">
+                      <button data-test-id="property-label-broken" type="button">
+                        <span><span><span>Broken Cell</span></span></span>
+                      </button>
+                    </div>
+                    <small data-test-id="property-type-label-broken">Single-line text</small>
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </td>
+      <td data-test-id="cell-group-0-1/broken"><span>Contact information</span></td>
+    </tr>
+  </tbody>
+</table>

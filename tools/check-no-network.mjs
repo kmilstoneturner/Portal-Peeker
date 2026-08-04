@@ -82,8 +82,40 @@ const hosts = JSON.stringify(manifest.host_permissions);
 if (hosts !== JSON.stringify(['*://*.hubspot.com/*'])) {
   failures.push(`manifest host_permissions must be exactly ["*://*.hubspot.com/*"], found ${hosts}`);
 }
-if ((manifest.permissions || []).length > 0) {
-  failures.push(`the extension should request no extra permissions, found ${JSON.stringify(manifest.permissions)}`);
+// An exact set, not "empty". storage holds the state of the Settings page
+// checkboxes and has no network dimension at all, so failing on it would be
+// this check measuring the wrong thing: the claim is "no host but hubspot.com".
+// The claim the empty list used to stand in for, that nothing about a capture
+// is persisted, is checked directly below instead.
+const ALLOWED_PERMISSIONS = ['storage'];
+const permissions = manifest.permissions || [];
+if (JSON.stringify(permissions) !== JSON.stringify(ALLOWED_PERMISSIONS)) {
+  failures.push(
+    `manifest permissions must be exactly ${JSON.stringify(ALLOWED_PERMISSIONS)}, ` +
+      `found ${JSON.stringify(permissions)}`,
+  );
+}
+
+// Optional permissions are a way to widen scope after review, which defeats the
+// point of a user being able to verify the grant in chrome://extensions.
+for (const key of ['optional_permissions', 'optional_host_permissions']) {
+  if (manifest[key]) failures.push(`manifest declares ${key}; scope must not be widenable later`);
+}
+
+// PRIVACY.md: the capture is held in one content script's memory and is "not
+// written to chrome.storage". Now that a storage permission exists, that
+// sentence needs a guard of its own rather than resting on there being no
+// permission at all. Comments stripped first, same reason as the MAIN-world
+// grep in tools/build.mjs: a check that cannot tell prose from code is a check
+// nobody trusts for long.
+const stripComments = (source) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+for (const file of ['capture/bridge.js', 'capture/interceptor.js']) {
+  const source = stripComments(readFileSync(join(DIST, file), 'utf8'));
+  if (/\bchrome\.storage\b/.test(source)) {
+    failures.push(`${file} references chrome.storage; the capture path persists nothing`);
+  }
 }
 
 if (failures.length) {
