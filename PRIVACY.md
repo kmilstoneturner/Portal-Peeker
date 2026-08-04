@@ -1,6 +1,6 @@
 # Portal Peeker privacy policy
 
-Last updated: 2026-08-02. Applies to the Portal Peeker Chrome extension, all versions.
+Last updated: 2026-08-04. Applies to the Portal Peeker Chrome extension, all versions.
 
 ## The short version
 
@@ -12,8 +12,12 @@ could.
 
 ## What Portal Peeker reads
 
-On pages matching `*://*.hubspot.com/workflows/*`, and nowhere else, it observes two
-requests that HubSpot's editor makes to HubSpot:
+It runs on two kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workflows/*`, and
+`*://*.hubspot.com/property-settings/*`. What it does on each is different, and only the
+first involves reading any request.
+
+On pages matching `*://*.hubspot.com/workflows/*` it observes two requests that HubSpot's
+editor makes to HubSpot:
 
 - `GET /api/automationplatform/v1/hybrid/{flowId}`, which the editor issues when a workflow
   opens.
@@ -31,16 +35,25 @@ Peeker treats all of it as opaque text.
 
 In the memory of the content script running in that one browser tab, and nowhere else.
 
-- It is **not** written to `chrome.storage`.
+- It is **not** written to `chrome.storage`. The extension does now hold one storage
+  permission, for the checkbox states described below, so this is no longer something you
+  have to take on trust: the build fails if either capture script so much as mentions
+  `chrome.storage`.
 - It is **not** written to disk unless you press Download.
 - It is **not** sent to the extension's developer or to any third party, because the
   extension contains no code that could do so.
 - Reloading the page or closing the tab discards it. There is no history and no way to
   recover a previous capture.
 
-The only thing Portal Peeker stores between sessions is the state of the four export
-checkboxes, kept in the popup's own `localStorage`. That is four true/false values. It
-contains nothing about any workflow, portal, or person.
+The only thing Portal Peeker stores between sessions is the state of its checkboxes: the four
+export options, kept in the popup's own `localStorage`, and the Settings page toggles, kept in
+`chrome.storage.local`. That is a handful of true/false values. It contains nothing about any
+workflow, portal, or person, and no property name, label, or id ever reaches either store.
+
+The Settings toggles are in `chrome.storage` rather than alongside the others for one reason:
+they are obeyed by a script running on hubspot.com, which is a different origin and cannot
+read the popup's `localStorage`. It is `chrome.storage.local`, never `chrome.storage.sync`,
+so they stay on this machine. A build check enforces both the area and the exact set of keys.
 
 ## What leaves your computer
 
@@ -75,9 +88,31 @@ permission; the value is read from `document.cookie` on the page you are already
 
 ## Permissions
 
-The extension declares **no** entries under `permissions`. Its only privilege is the host
-permission `*://*.hubspot.com/*`. It cannot read any other site, and it has no access to
-your browsing history, bookmarks, downloads, or other tabs.
+The extension declares exactly one entry under `permissions`: `storage`, which holds the
+state of its checkboxes and nothing else. Chrome shows no warning for it, because it grants
+no access to your data: it is a private key-value store belonging to the extension. Its only
+other privilege is the host permission `*://*.hubspot.com/*`. It cannot read any other site,
+and it has no access to your browsing history, bookmarks, downloads, or other tabs.
+
+The build pins that list to exactly `["storage"]` and fails on anything else, including
+`optional_permissions`, which would be a way to widen the grant after you had checked it.
+
+## Showing API names on the property settings page
+
+If you turn on **Show internal API names**, then on `*://*.hubspot.com/property-settings/*`
+Portal Peeker adds each property's internal name underneath its label.
+
+That name is already on the page. HubSpot renders it into the table's own HTML attributes;
+the extension reads what is in front of you and displays it more legibly. **No request is
+made, and nothing is read that was not already loaded in your browser.** Nothing about the
+properties, the object, or the portal is stored or transmitted, and the only thing saved
+anywhere is whether the checkbox is ticked.
+
+The change is display only and it is undone the moment you untick the box or leave the page.
+Portal Peeker only ever adds elements of its own here: it does not remove, move, or alter
+anything HubSpot drew, and it makes no change to your data or your portal.
+
+This setting is off until you turn it on.
 
 ## What Portal Peeker never does
 
