@@ -42,7 +42,7 @@
       "all_frames": false
     },
     {
-      "matches": ["*://*.hubspot.com/property-settings/*"],
+      "matches": ["*://*.hubspot.com/property-settings/*", "*://*.hubspot.com/contacts/*"],
       "js": ["overlay/overlay.js"],
       "css": ["overlay/overlay.css"],
       "world": "ISOLATED",

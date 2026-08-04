@@ -1,0 +1,268 @@
+<!--
+  Hand authored, like properties-table.synthetic.html and the synthetic JSON in
+  packages/core. Not a saved copy of a real record page, and a real one must
+  never be committed here: a record carries a person's data and a portal's
+  authored property labels.
+
+  Every class attribute is dropped. Nothing in this package selects on a class,
+  and a fixture carrying them would let someone start.
+
+  The nesting that matters is kept exactly: the per-row marker is a DIRECT child
+  of the row, the anchor sits between the label and the value, and the second
+  source is buried a few levels inside the value. Inert presentation wrappers
+  inside the label (TruncateString and friends) are collapsed, because no rule
+  reads them and depth there changes no behaviour.
+
+  Pair this with a path of /contacts/1/record/0-1/2 so the card's objectTypeId
+  agrees with the page's.
+-->
+<div data-test-id="left-sidebar">
+  <!--
+    Page furniture. Every one of these is a well-formed property name or carries
+    a property-shaped substring, and none of them is a property. They sit outside
+    every container, which is the only thing that excludes them: no rule reading
+    the attribute alone could.
+  -->
+  <nav>
+    <a data-test-id="deals">Deals</a>
+    <a data-test-id="contacts">Contacts</a>
+    <a data-test-id="tasks">Tasks</a>
+    <a data-test-id="badge">Badge</a>
+  </nav>
+  <div data-test-id="create-engagement-email">
+    <button data-selenium-test="create-engagement-email-button" type="button">Email</button>
+  </div>
+  <span data-test-id="activity-button-icon-email"></span>
+  <div data-test-id="timeline-filter-container">
+    <button data-selenium-test="QuickFiltersBar-item-hubspot_owner_id" type="button">Owner</button>
+  </div>
+
+  <!--
+    A properties list with no properties card above it. Container scoping means
+    this is never even walked.
+  -->
+  <ul data-selenium-test="profile-properties-list">
+    <span data-test-id="outside_card">
+      <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display">
+        <div>
+          <div>
+            <div><label>Outside Card</label></div>
+            <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+            <div aria-labelledby="l-outside"><span><div><span data-selenium-test="property-input-outside_card">--</span></div></span></div>
+          </div>
+        </div>
+      </div>
+    </span>
+  </ul>
+
+  <!-- The properties card for this page's object. -->
+  <div data-properties-card-id="PROPERTIES_V3/0-1/V2" data-selenium-test="properties-card-content">
+    <div data-selenium-test="profile-properties">
+      <ul data-selenium-test="profile-properties-list">
+
+        <!-- The happy path. Display mode, editable, second source on a span. -->
+        <span data-test-id="annualrevenue">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display" role="button" tabindex="0">
+            <div>
+              <div>
+                <div><label id="l-1" for="f-1">Annual Revenue</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-1" id="f-1">
+                  <span><div><div><span data-selenium-test="property-input-annualrevenue">--</span></div></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!--
+          An enum. Its value renders a UITag whose own test id is "badge", and a
+          caret whose test id is "dropdown-caret", both NESTED inside the second
+          source. This is the case the live page produced. Direct-child scoping
+          keeps them from ever being offered as rows; a character-shape rule
+          could not, because property names may contain hyphens (see label-foo
+          below), so "dropdown-caret" is shaped exactly like a real name.
+        -->
+        <span data-test-id="hs_lead_status">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display" role="button" tabindex="0">
+            <div>
+              <div>
+                <div><label id="l-2" for="f-2">Lead Status</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-2" id="f-2">
+                  <span><div><div><span>
+                    <span data-selenium-test="property-input-hs_lead_status">
+                      <span data-component-name="UITag" data-tag-use="badge-lorax" data-test-id="badge" data-test-badge-use="lorax"><span>Lead</span></span>
+                    </span>
+                    <span><span data-test-id="dropdown-caret"></span></span>
+                  </span></div></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!--
+          The prefix trap. This name arrives on the second source as
+          property-input-label-foo, which a regex replace or a split on '-' would
+          mangle. It is why prefixes are stripped by length in test-id.js.
+        -->
+        <span data-test-id="label-foo">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display">
+            <div>
+              <div>
+                <div><label id="l-3" for="f-3">Label Foo</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-3" id="f-3">
+                  <span><div><span data-selenium-test="property-input-label-foo">--</span></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!--
+          Read only. Confirmed on a live record: it carries both sources and an
+          anchor like any other row, so it must annotate. Pinned here because
+          "read only fields are different" is the obvious wrong guess.
+        -->
+        <span data-test-id="notes_last_contacted">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="readonly" data-deferred-property-input-mode="display" tabindex="0">
+            <div>
+              <div>
+                <div><label id="l-4" for="f-4">Last Contacted</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-4" id="f-4">
+                  <span><div><div><span data-selenium-test="property-input-notes_last_contacted">--</span></div></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!--
+          Being edited. Two things change and both were observed on one field: an
+          extra DisplayOptimizedFormControl layer appears, and the second source
+          moves from a span to a button one level deeper. Matched by attribute
+          only, never by tag or position.
+        -->
+        <span data-test-id="hs_pipeline_stage">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="input">
+            <div data-test-id="DisplayOptimizedFormControl">
+              <div>
+                <div>
+                  <div><label id="l-5" for="f-5">Pipeline Stage</label></div>
+                  <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                  <div>
+                    <button type="button" id="f-5" data-dropdown="true" data-selenium-test="property-input-hs_pipeline_stage">
+                      <span><span data-test-id="dropdown-caret"></span></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!--
+          A real property with no second source at all. An owner control renders
+          its value as bare text with no property-input node, so the cross check
+          cannot clear it and the row is skipped. This is a known cost of the
+          rule, not a bug: a missing line is visible, a guessed one is not.
+        -->
+        <span data-test-id="hubspot_owner_id">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display" role="button" tabindex="0">
+            <div>
+              <div>
+                <div><label id="l-6" for="f-6">Contact Owner</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-6" id="f-6">
+                  <span><div><div><span>No owner<span><span data-test-id="dropdown-caret"></span></span></span></div></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!-- Two sources that disagree. Skipped, and its neighbours must not be. -->
+        <span data-test-id="mismatch_a">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display">
+            <div>
+              <div>
+                <div><label id="l-7" for="f-7">Mismatch</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-7" id="f-7">
+                  <span><div><span data-selenium-test="property-input-mismatch_b">--</span></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!--
+          Both sources agree, but the row carries no per-row marker. Something
+          that is not a property row is sitting in the list, and the structural
+          check is the only thing that says so.
+        -->
+        <span data-test-id="no_marker">
+          <div>
+            <div>
+              <div>
+                <div><label id="l-8" for="f-8">No Marker</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-8" id="f-8">
+                  <span><div><span data-selenium-test="property-input-no_marker">--</span></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+        <!--
+          Readable, but with nowhere to put the name. On the settings table the
+          anchor was also the second source and so could not go missing on its
+          own; here it is a third element and has to be checked for.
+        -->
+        <span data-test-id="no_anchor">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display">
+            <div>
+              <div>
+                <div><label id="l-9" for="f-9">No Anchor</label></div>
+                <div aria-labelledby="l-9" id="f-9">
+                  <span><div><span data-selenium-test="property-input-no_anchor">--</span></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+
+      </ul>
+    </div>
+  </div>
+
+  <!--
+    A properties card for a different object than the one the page is showing.
+    Withdrawn whole rather than per row: being the right card is the entire
+    reason a bare name inside it can be trusted, so if that fails there is no
+    weaker reading to fall back on.
+  -->
+  <div data-properties-card-id="PROPERTIES_V3/2-98765/V2" data-selenium-test="properties-card-content">
+    <div data-selenium-test="profile-properties">
+      <ul data-selenium-test="profile-properties-list">
+        <span data-test-id="wrong_object">
+          <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display">
+            <div>
+              <div>
+                <div><label id="l-10" for="f-10">Wrong Object</label></div>
+                <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+                <div aria-labelledby="l-10" id="f-10">
+                  <span><div><span data-selenium-test="property-input-wrong_object">--</span></div></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </span>
+      </ul>
+    </div>
+  </div>
+</div>

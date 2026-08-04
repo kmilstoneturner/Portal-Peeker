@@ -15,6 +15,9 @@
 // HubSpot changes one of them is a missing line rather than a confident wrong
 // one. That is ADR-005's rule applied to markup: no rule fires on belief.
 
+// One line each: tools/build.mjs is line based and throws on a wrapped import.
+import { afterPrefix, nameProblem, refuse } from './test-id.js';
+
 const CELL_PREFIX = 'cell-name-';
 const TYPE_LABEL_PREFIX = 'property-type-label-';
 const LABEL_PREFIX = 'property-label-';
@@ -25,37 +28,6 @@ const LABEL_PREFIX = 'property-label-';
 // slash, and because the name half is greedy a property whose name contains a
 // slash still parses.
 const CELL_VALUE = /^(\d+-\d+)\/(.+)$/;
-
-// Long enough that no real property comes near it, short enough that a runaway
-// value is caught. Deliberately a short literal: tools/check-no-portal-data.mjs
-// fails on any run of six or more digits, so a constant written with that many
-// would have to be allowlisted alongside real portal ids, which is not company
-// a structural constant should keep.
-const MAX_NAME_LENGTH = 512;
-
-const refuse = (reason) => ({ ok: false, reason });
-
-/**
- * Strip a known prefix, or return null.
- *
- * startsWith plus slice, never a replace and never a split on '-'. A property
- * genuinely named `label-foo` arrives as `property-label-label-foo`, and both
- * of those would mangle it. There is a test.
- */
-function afterPrefix(value, prefix) {
-  if (typeof value !== 'string') return null;
-  if (!value.startsWith(prefix)) return null;
-  return value.slice(prefix.length);
-}
-
-/** A name is only rejected here for the shapes that mean the split went wrong. */
-function nameProblem(name) {
-  if (name === null) return 'no-prefix';
-  if (name === '') return 'empty-name';
-  if (/\s/.test(name)) return 'name-has-whitespace';
-  if (name.length > MAX_NAME_LENGTH) return 'name-too-long';
-  return null;
-}
 
 /**
  * Parse a name cell's test id.

@@ -1,23 +1,26 @@
 # Overlay fixtures
 
-`properties-table.synthetic.html` is hand authored, like the synthetic JSON
-fixtures in `packages/core`. It is not a saved copy of a real page, and a real
-one must never be committed here.
+Both fixtures here are hand authored, like the synthetic JSON fixtures in
+`packages/core`. Neither is a saved copy of a real page, and a real one must
+never be committed here.
 
-Two reasons. A real properties table carries a portal's custom property labels,
-which are authored content and are never committed to this repo. And it carries
-styled-components class hashes that change on every HubSpot build, which would
-turn this file into a set of assertions about unstable strings.
+Two reasons. A real page carries a portal's custom property labels, which are
+authored content and are never committed to this repo, and a real record page
+carries a person's data on top of that. And both carry styled-components class
+hashes that change on every HubSpot build, which would turn these files into
+sets of assertions about unstable strings.
 
-So the fixture keeps the real nesting and the real `data-test-id` grammar, and
-drops every `class` attribute. Nothing in the parser is allowed to select on a
-class, and a fixture that carried them would let someone start.
+So the fixtures keep the real nesting and the real attribute grammar, and drop
+every `class` attribute. Nothing in this package is allowed to select on a class,
+and a fixture that carried them would let someone start.
 
 Every `objectTypeId` is synthetic and short on purpose. Real custom object ids
 carry enough digits to trip `tools/check-no-portal-data.mjs`, which scans
 `.html` as well as source.
 
-## What each row is for
+## `properties-table.synthetic.html`
+
+The property settings table. What each row is for:
 
 | Row | Why it exists |
 |---|---|
@@ -32,3 +35,35 @@ carry enough digits to trip `tools/check-no-portal-data.mjs`, which scans
 The last three are the point of the file. A well behaved table cannot exercise
 the cases where a rule must **not** fire, which is the same reason
 `packages/core/__fixtures__/synthetic/trim-cases.synthetic.json` exists.
+
+## `record-sidebar.synthetic.html`
+
+A contact record's properties card. Load it with a path of
+`/contacts/1/record/0-1/2`, since a card is only read when the `objectTypeId` it
+declares matches the one in the URL.
+
+This surface is harder than the table, and the fixture is shaped around why. The
+primary source is the **bare property name** (`data-test-id="lifecyclestage"`),
+which carries no evidence on its own, so the decoys here are not merely nearby:
+some of them are indistinguishable from a real property by any rule that reads
+one attribute.
+
+| Row | Why it exists |
+|---|---|
+| `annualrevenue` | The happy path. Display mode, editable, second source on a `<span>`. |
+| `hs_lead_status` | An enum, whose value nests a `badge` and a `dropdown-caret` **inside** the second source. Direct-child scoping is the only thing keeping them out of the row list. |
+| `label-foo` | The prefix trap, arriving as `property-input-label-foo`. It is why prefixes are stripped by length. It is also the proof that no character-shape rule can be used to reject `dropdown-caret`: real names may be hyphenated. |
+| `notes_last_contacted` | Read only (`state="readonly"`). Confirmed live to carry both sources and an anchor, so it must annotate. Pinned because "read only is different" is the obvious wrong guess. |
+| `hs_pipeline_stage` | Being edited (`mode="input"`). An extra `DisplayOptimizedFormControl` layer appears and the second source moves to a `<button>` one level deeper, so it is matched by attribute alone. |
+| `hubspot_owner_id` | A real property with no second source at all: an owner control renders its value as bare text. Skipped, which is a known cost of the rule rather than a bug. |
+| `mismatch_a` with a `mismatch_b` source | Two sources that disagree. Skipped, neighbours still annotated. |
+| `no_marker` | Both sources agree, but no `data-deferred-property-input-root` child. The structural check is the only thing that rejects it. |
+| `no_anchor` | Readable, but nowhere to put the name. On the table the anchor was also the second source and could not go missing alone; here it can. |
+| `wrong_object` in a `2-98765` card | A card for a different object than the page. The one thing withdrawn whole rather than per row. |
+| `outside_card` | A properties list with no card above it. Never walked. |
+| nav `deals`, `contacts`, `tasks`, `badge` | Well-formed property names on nav chrome. Only the container excludes them. |
+| `create-engagement-email-button`, `activity-button-icon-email`, `QuickFiltersBar-item-hubspot_owner_id` | Property-shaped ids on controls that carry no property, all three observed live. The last is a genuine property name, which is why the second source is matched on a prefix rather than a substring. |
+
+Inert presentation wrappers inside the label are collapsed. No rule reads them
+and depth there changes no behaviour, unlike the marker depth and the anchor
+position, which are kept exactly.

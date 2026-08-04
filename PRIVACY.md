@@ -12,9 +12,15 @@ could.
 
 ## What Portal Peeker reads
 
-It runs on two kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workflows/*`, and
-`*://*.hubspot.com/property-settings/*`. What it does on each is different, and only the
-first involves reading any request.
+It runs on three kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workflows/*`,
+`*://*.hubspot.com/property-settings/*`, and `*://*.hubspot.com/contacts/*`. What it does on
+each is different, and only the first involves reading any request.
+
+`*://*.hubspot.com/contacts/*` is broader than the pages the extension actually annotates,
+which are CRM record pages. HubSpot opens a record from a list without reloading the page, and
+a narrower pattern would simply fail to load when you got there. On any other page under that
+path, including every list and index view, the extension checks the address, finds no record,
+and does nothing further.
 
 On pages matching `*://*.hubspot.com/workflows/*` it observes two requests that HubSpot's
 editor makes to HubSpot:
@@ -97,16 +103,21 @@ and it has no access to your browsing history, bookmarks, downloads, or other ta
 The build pins that list to exactly `["storage"]` and fails on anything else, including
 `optional_permissions`, which would be a way to widen the grant after you had checked it.
 
-## Showing API names on the property settings page
+## Showing API names on property settings and record pages
 
 If you turn on **Show internal API names**, then on `*://*.hubspot.com/property-settings/*`
-Portal Peeker adds each property's internal name underneath its label.
+and on CRM record pages under `*://*.hubspot.com/contacts/*`, Portal Peeker adds each
+property's internal name underneath its label.
 
-That name is already on the page. HubSpot renders it into the table's own HTML attributes;
-the extension reads what is in front of you and displays it more legibly. **No request is
-made, and nothing is read that was not already loaded in your browser.** Nothing about the
-properties, the object, or the portal is stored or transmitted, and the only thing saved
-anywhere is whether the checkbox is ticked.
+That name is already on the page. HubSpot renders it into the page's own HTML attributes; the
+extension reads what is in front of you and displays it more legibly. **No request is made,
+and nothing is read that was not already loaded in your browser.** Nothing about the
+properties, the object, the record, or the portal is stored or transmitted, and the only thing
+saved anywhere is whether the checkbox is ticked.
+
+On a record page the extension reads property names and the record's object type, both from
+HTML attributes. It does not read, store, or transmit the record's values, and it makes no use
+of whose record it is.
 
 The change is display only and it is undone the moment you untick the box or leave the page.
 Portal Peeker only ever adds elements of its own here: it does not remove, move, or alter

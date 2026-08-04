@@ -2,8 +2,10 @@
 //
 // This file owns the setting, the observer, the debounce, and the cycle
 // breaker. It owns no knowledge of any particular page. Each feature supplies
-// present(), annotate(), and remove(), and a second surface (record pages) is
-// one more register() call and one more match pattern in the manifest.
+// present(), annotate(), and remove(). Record pages were the first surface added
+// after this shape was chosen, and they cost one import, one FEATURES entry, and
+// one match pattern, which is what the registry was for. register() stays for a
+// caller outside this module.
 //
 // Runs in the ISOLATED world, so it shares the page's DOM but not its window,
 // and it does have chrome.* available. Nothing here patches or reads anything
@@ -13,8 +15,9 @@
 import { SETTING } from './settings.js';
 import { readSettings, onSettingsChanged } from './settings-store.js';
 import { propertyListFeature } from './property-list.js';
+import { recordPropertiesFeature } from './record-properties.js';
 
-const FEATURES = [propertyListFeature];
+const FEATURES = [propertyListFeature, recordPropertiesFeature];
 
 // A background tab is served no animation frames, so a rAF-only debounce would
 // stall there until it is looked at. 200ms is imperceptible on a tab nobody is

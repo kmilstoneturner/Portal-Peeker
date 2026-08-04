@@ -22,6 +22,16 @@ const FIXTURE = readFileSync(
   join(HERE, '__fixtures__', 'properties-table.synthetic.html'),
   'utf8',
 );
+const RECORD_FIXTURE = readFileSync(
+  join(HERE, '__fixtures__', 'record-sidebar.synthetic.html'),
+  'utf8',
+);
+
+// The default environment URL is not a HubSpot record page, so the record
+// feature's present() is false throughout the cases above. The block at the
+// bottom of this file is the one that puts it on.
+const RECORD_URL = 'https://app-x.hubspot.com/contacts/1/record/0-1/2';
+const NOWHERE_URL = 'https://app-x.hubspot.com/property-settings/1/contact';
 
 const load = (html = FIXTURE) => {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
@@ -130,5 +140,51 @@ describe('the observer', () => {
     await settle();
 
     expect(count()).toBe(0);
+  });
+});
+
+// Two surfaces registered at once. The host is meant to own no page knowledge,
+// so what is being checked is that adding a feature costs the first one nothing:
+// each still bails on its own, each annotates its own, and one switch clears
+// both.
+describe('more than one feature', () => {
+  const bothPages = () => load(`${FIXTURE}\n${RECORD_FIXTURE}`);
+
+  afterEach(() => window.happyDOM.setURL(NOWHERE_URL));
+
+  it('annotates both surfaces when both are on the page', async () => {
+    window.happyDOM.setURL(RECORD_URL);
+    bothPages();
+
+    apply(true);
+    await settle();
+
+    // 4 from the properties table, 5 from the record sidebar.
+    expect(count()).toBe(9);
+  });
+
+  it('takes both back out with one switch', async () => {
+    window.happyDOM.setURL(RECORD_URL);
+    bothPages();
+
+    apply(true);
+    await settle();
+    expect(count()).toBe(9);
+
+    apply(false);
+    expect(count()).toBe(0);
+  });
+
+  // Each feature's present() is its own bail, so a page carrying one surface
+  // must not pay for the other and must not be annotated by it.
+  it('annotates only the surface that is actually present', async () => {
+    window.happyDOM.setURL(NOWHERE_URL);
+    bothPages();
+
+    apply(true);
+    await settle();
+
+    // The record card is in the DOM, but this is not a record page.
+    expect(count()).toBe(4);
   });
 });

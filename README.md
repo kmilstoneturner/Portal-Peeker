@@ -56,21 +56,30 @@ annualrevenue
 Single-line text
 ```
 
-That name is already on the page. HubSpot writes it into the table's own HTML attributes and
+On a record page the same name appears under each field's label in the properties card:
+
+```
+Lead Status
+hs_lead_status
+--
+```
+
+That name is already on the page. HubSpot writes it into the page's own HTML attributes and
 simply does not display it, so this reads what is in front of you and makes it legible.
 **No request is made.** It is display only, it is undone the moment you untick the box, and
 it is off until you turn it on.
 
 The honest limit: this reads an internal HubSpot UI with no version and no stability promise.
-Two independent copies of the name have to agree before a row is annotated, so when HubSpot
+Two independent copies of the name have to agree before a field is annotated, so when HubSpot
 changes its markup **the annotation disappears rather than showing you the wrong name**. A row
-it cannot read with confidence is skipped and the rest of the table is still annotated.
+it cannot read with confidence is skipped and the rest of the page is still annotated.
+
+That rule costs a little coverage, deliberately. On a record page some fields render their
+value through a control that carries only one copy of the name, and the contact owner field is
+one of them, so it is left unannotated rather than guessed at.
 
 Settings are stored in `chrome.storage.local`, which is the one permission the extension asks
 for. See the privacy note above.
-
-Not yet: the same annotation on record pages. The code is shaped for it and the setting is
-meant to cover it, but it is not built.
 
 ## Trimming
 

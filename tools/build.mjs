@@ -55,9 +55,12 @@ const BUNDLES = [
     sources: [
       `${OVERLAY}/settings.js`,
       `${OVERLAY}/settings-store.js`,
+      `${OVERLAY}/test-id.js`,
       `${OVERLAY}/property-rows.js`,
+      `${OVERLAY}/record-surfaces.js`,
       `${OVERLAY}/api-name-node.js`,
       `${OVERLAY}/property-list.js`,
+      `${OVERLAY}/record-properties.js`,
       `${OVERLAY}/overlay.js`,
     ],
   },
