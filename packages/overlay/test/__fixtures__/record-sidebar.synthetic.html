@@ -55,8 +55,41 @@
     </span>
   </ul>
 
+  <!--
+    Cards carrying no objectTypeId in their id. Real examples, both on the same
+    record: one has no slash at all, the other hyphenates. Neither parses, so
+    neither is read, which is what stops the generic [data-card-type] scope from
+    being a way in to every card on the page.
+  -->
+  <div data-card-type="MARKETING_LEAD_SCORES" data-card-id="MARKETING_LEAD_SCORES">
+    <ul data-selenium-test="profile-properties-list">
+      <span data-test-id="no_object_type">
+        <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display">
+          <div>
+            <div>
+              <div><label id="l-11" for="f-11">No Object Type</label></div>
+              <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+              <div aria-labelledby="l-11" id="f-11">
+                <span><div><span data-selenium-test="property-input-no_object_type">--</span></div></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </span>
+    </ul>
+  </div>
+  <div data-card-type="OBJECT_HIGHLIGHT" data-card-id="OBJECT_HIGHLIGHT-FAS-0-1-1"></div>
+
+  <!--
+    An association card. Its objectTypeId is a real one, but it is the ASSOCIATED
+    object's, not this page's, so it disagrees with the URL and is skipped. That
+    is right today. If association cards are ever annotated they will need their
+    own entry with their own idea of which object type is correct.
+  -->
+  <div data-card-type="ASSOCIATION_V3" data-card-id="ASSOCIATION_V3/0-2"></div>
+
   <!-- The properties card for this page's object. -->
-  <div data-properties-card-id="PROPERTIES_V3/0-1/V2" data-selenium-test="properties-card-content">
+  <div data-card-type="PROPERTIES_V3" data-card-id="PROPERTIES_V3/0-1/V2" data-selenium-test="properties-card-content">
     <div data-selenium-test="profile-properties">
       <ul data-selenium-test="profile-properties-list">
 
@@ -246,7 +279,7 @@
     reason a bare name inside it can be trusted, so if that fails there is no
     weaker reading to fall back on.
   -->
-  <div data-properties-card-id="PROPERTIES_V3/2-98765/V2" data-selenium-test="properties-card-content">
+  <div data-card-type="PROPERTIES_V3" data-card-id="PROPERTIES_V3/2-98765/V2" data-selenium-test="properties-card-content">
     <div data-selenium-test="profile-properties">
       <ul data-selenium-test="profile-properties-list">
         <span data-test-id="wrong_object">

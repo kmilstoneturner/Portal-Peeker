@@ -59,11 +59,19 @@ export const SURFACES = [
   {
     id: 'sidebar-properties',
 
-    // Carries `{cardType}/{objectTypeId}/{variant}`, e.g. PROPERTIES_V3/0-1/V2.
-    // The objectTypeId in it must agree with the URL's before anything inside is
-    // read, which is what makes the container trustworthy enough to scope on.
-    container: '[data-properties-card-id]',
-    containerAttribute: 'data-properties-card-id',
+    // Every card on a record page carries data-card-type and data-card-id,
+    // whatever kind of card it is, so this scopes on the generic axis rather
+    // than on one card's own attribute. That is what lets a custom card become
+    // another entry in this table instead of another special case.
+    //
+    // data-card-id is `{cardType}/{objectTypeId}/{variant}`, e.g.
+    // PROPERTIES_V3/0-1/V2. Cards that carry no objectTypeId in that shape
+    // (MARKETING_LEAD_SCORES, OBJECT_HIGHLIGHT-FAS-0-1-1) fail to parse and are
+    // skipped, and so are cards for a different object than the page is showing
+    // (ASSOCIATION_V3/0-2 on a 0-1 record). Both are correct: the objectTypeId
+    // agreeing is what makes a bare name inside trustworthy at all.
+    container: '[data-card-type]',
+    containerAttribute: 'data-card-id',
 
     list: 'ul[data-selenium-test="profile-properties-list"]',
 

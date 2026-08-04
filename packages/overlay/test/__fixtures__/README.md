@@ -60,6 +60,9 @@ one attribute.
 | `no_marker` | Both sources agree, but no `data-deferred-property-input-root` child. The structural check is the only thing that rejects it. |
 | `no_anchor` | Readable, but nowhere to put the name. On the table the anchor was also the second source and could not go missing alone; here it can. |
 | `wrong_object` in a `2-98765` card | A card for a different object than the page. The one thing withdrawn whole rather than per row. |
+| `no_object_type` in a `MARKETING_LEAD_SCORES` card | Cards are scoped by the generic `data-card-type`, so every card on the page is considered. This one's id carries no objectTypeId, so it never parses and is never read. |
+| `OBJECT_HIGHLIGHT-FAS-0-1-1` | The other real shape that carries no parseable objectTypeId: hyphens where the grammar wants slashes. |
+| `ASSOCIATION_V3/0-2` | A real objectTypeId, but the *associated* object's rather than the page's. Skipped today. Annotating association cards would need its own entry with its own idea of which type is correct. |
 | `outside_card` | A properties list with no card above it. Never walked. |
 | nav `deals`, `contacts`, `tasks`, `badge` | Well-formed property names on nav chrome. Only the container excludes them. |
 | `create-engagement-email-button`, `activity-button-icon-email`, `QuickFiltersBar-item-hubspot_owner_id` | Property-shaped ids on controls that carry no property, all three observed live. The last is a genuine property name, which is why the second source is matched on a prefix rather than a substring. |

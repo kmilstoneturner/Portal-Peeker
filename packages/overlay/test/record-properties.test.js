@@ -106,6 +106,15 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
     });
   });
 
+  // The scope is the generic [data-card-type], so every card on the page is
+  // considered and all but one is turned away by its own id. That is the point:
+  // a custom card becomes another entry in the table rather than another
+  // selector nobody remembers to add.
+  it('reads only the card whose objectTypeId matches the page', () => {
+    expect(annotateRecordProperties(document).cards).toBe(1);
+    expect(names()).not.toContain('no_object_type');
+  });
+
   it('annotates a read-only row like any other', () => {
     annotateRecordProperties(document);
     expect(names()).toContain('notes_last_contacted');
