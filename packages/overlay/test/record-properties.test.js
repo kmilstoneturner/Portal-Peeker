@@ -45,6 +45,7 @@ const anchorIn = (row) => row.querySelector('[data-test-id="hover-content-wrappe
 
 /** Every name the Key information card yields, in document order. */
 const SIDEBAR = [
+  'verticalmarket',
   'annualrevenue',
   'hs_lead_status',
   'label-foo',
@@ -104,24 +105,31 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
   });
 
   it('reports what it did', () => {
-    // 3 containers: the Key information card, the highlights strip, and the
-    // All properties panel. 9 + 3 + 8 rows across them, the panel's eight being
-    // four real ones plus the two skeletons and the nested control that only the
-    // anchor check turns away.
+    // 5 containers accepted across the three surfaces. Two carry rows: the Key
+    // information card and the custom card with the bare numeric id. The rest
+    // are the highlight card (which the sidebar surface also matches and finds
+    // nothing in), the highlights container, and the All properties panel.
+    //
+    // The panel's eight rows are four real ones plus the two skeletons and the
+    // nested control that only the anchor check turns away.
     expect(annotateRecordProperties(document)).toEqual({
-      cards: 3,
-      rows: 20,
-      inserted: 12,
+      cards: 5,
+      rows: 21,
+      inserted: 13,
       skipped: 8,
     });
   });
 
-  // The scope is the generic [data-card-type], so every card on the page is
-  // considered and all but one is turned away by its own id. That is the point:
-  // a custom card becomes another entry in the table rather than another
-  // selector nobody remembers to add.
-  it('reads only the card whose objectTypeId matches the page', () => {
-    expect(names()).not.toContain('no_object_type');
+  // "Must not contradict the URL", not "must declare an object type". Nearly
+  // every card on a real client record is a custom one whose id is a bare
+  // number, and requiring a declaration skipped all of them.
+  it('reads a custom card whose id declares no object type', () => {
+    annotateRecordProperties(document);
+    expect(names()).toContain('verticalmarket');
+  });
+
+  it('still refuses a card that declares a different object', () => {
+    annotateRecordProperties(document);
     expect(names()).not.toContain('wrong_object');
   });
 
@@ -301,6 +309,37 @@ describe('running more than once', () => {
     // Still one annualrevenue on the page, but it is the All properties row now,
     // not this one. The reused sidebar row was corrected rather than duplicated.
     expect(names().filter((n) => n === 'annualrevenue')).toHaveLength(1);
+  });
+});
+
+// Seen live on the highlights strip: `jobtitle` printed twice. React re-rendered
+// the value node and put the new one AHEAD of the node already placed, so the
+// previous-sibling test missed and the next pass inserted a second.
+describe('a re-render that moves our node', () => {
+  const jobtitle = () => document.querySelector('[data-test-id="highlight-property-display-jobtitle"]');
+
+  it('does not double up when the anchor moves ahead of our node', () => {
+    annotateRecordProperties(document);
+    const row = jobtitle();
+    const ours = row.previousElementSibling;
+    expect(ours.className).toBe('pp-api-name');
+
+    // The reorder, in the smallest form that reproduces it.
+    row.parentElement.insertBefore(row, ours);
+    annotateRecordProperties(document);
+
+    expect(names().filter((n) => n === 'jobtitle')).toHaveLength(1);
+    expect(jobtitle().previousElementSibling.className).toBe('pp-api-name');
+  });
+
+  it('leaves exactly one behind however many times it happens', () => {
+    for (let i = 0; i < 4; i += 1) {
+      annotateRecordProperties(document);
+      const row = jobtitle();
+      row.parentElement.insertBefore(row, row.previousElementSibling);
+    }
+    annotateRecordProperties(document);
+    expect(names().filter((n) => n === 'jobtitle')).toHaveLength(1);
   });
 });
 

@@ -159,8 +159,8 @@ describe('more than one feature', () => {
     apply(true);
     await settle();
 
-    // 4 from the properties table, 12 across the three record surfaces.
-    expect(count()).toBe(16);
+    // 4 from the properties table, 13 across the record surfaces.
+    expect(count()).toBe(17);
   });
 
   it('takes both back out with one switch', async () => {
@@ -169,7 +169,7 @@ describe('more than one feature', () => {
 
     apply(true);
     await settle();
-    expect(count()).toBe(16);
+    expect(count()).toBe(17);
 
     apply(false);
     expect(count()).toBe(0);

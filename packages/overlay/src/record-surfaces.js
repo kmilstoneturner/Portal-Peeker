@@ -76,12 +76,14 @@ export const NAME_FROM = {
 /**
  * Where a surface's objectTypeId comes from.
  *
- * CONTAINER is stronger and is used wherever the container declares one: the id
- * has to agree with the URL, so a card left over from another record is turned
- * away. PATH is for containers that declare nothing, where the page's own URL is
- * the only statement of which object is on screen. The All properties panel is a
- * modal with no card id, and the highlights card id (OBJECT_HIGHLIGHT-FAS-0-1-1)
- * hyphenates where the grammar wants slashes and so parses as nothing.
+ * CONTAINER means the container's id must NOT CONTRADICT the URL. It is not
+ * "must declare one": most cards on a real portal are custom and their ids carry
+ * no object type at all, so demanding a declaration skips them. A card that does
+ * declare one and names a different object is turned away.
+ *
+ * PATH is for containers with no id to read in the first place. The All
+ * properties panel is a modal with none, and the highlights card id
+ * (OBJECT_HIGHLIGHT-FAS-0-1-1) hyphenates where the grammar wants slashes.
  */
 export const OBJECT_TYPE_FROM = {
   CONTAINER: 'container',
@@ -107,12 +109,12 @@ export const SURFACES = [
     // than on one card's own attribute. That is what lets a custom card become
     // another entry in this table instead of another special case.
     //
-    // data-card-id is `{cardType}/{objectTypeId}/{variant}`, e.g.
-    // PROPERTIES_V3/0-1/V2. Cards that carry no objectTypeId in that shape
-    // (MARKETING_LEAD_SCORES, OBJECT_HIGHLIGHT-FAS-0-1-1) fail to parse and are
-    // skipped, and so are cards for a different object than the page is showing
-    // (ASSOCIATION_V3/0-2 on a 0-1 record). Both are correct: the objectTypeId
-    // agreeing is what makes a bare name inside trustworthy at all.
+    // data-card-id is `{cardType}/{objectTypeId}/{variant}` on HubSpot's stock
+    // cards (PROPERTIES_V3/0-1/V2) and a BARE NUMERIC ID on a portal's own
+    // custom ones (4773). Both are read, because readSurfaceContainer tests
+    // "must not contradict the URL" rather than "must declare an object type".
+    // A real client portal is mostly custom cards, and requiring a declaration
+    // skipped every one of them.
     container: '[data-card-type]',
     containerAttribute: 'data-card-id',
 
@@ -241,12 +243,25 @@ export function readSurfaceContainer({ surface, containerId, pathname } = {}) {
     return { ok: true, objectTypeId: path.objectTypeId };
   }
 
+  // The test is MUST NOT CONTRADICT, not "must declare". A card that names an
+  // object has to name this page's; a card that names none is not evidence
+  // against itself.
+  //
+  // This is not a nicety. HubSpot's stock card is PROPERTIES_V3/0-1/V2, but a
+  // custom card built in a portal is `data-card-id="4773"`, a bare numeric
+  // id with no object type in it at all. Requiring one meant every custom card
+  // on a real client portal was skipped whole, which is most of the sidebar.
+  //
+  // What the check still catches is the case it was written for: an association
+  // card declaring 0-2 while the page shows 0-1. Structure carries the rest, and
+  // it carries most of the weight here anyway, since a card has to contain a
+  // profile-properties-list and rows whose two name sources agree.
   const container = parseContainerId(containerId);
-  if (!container.ok) return container;
+  if (container.ok && container.objectTypeId !== path.objectTypeId) {
+    return refuse('object-type-mismatch');
+  }
 
-  if (container.objectTypeId !== path.objectTypeId) return refuse('object-type-mismatch');
-
-  return { ok: true, objectTypeId: container.objectTypeId };
+  return { ok: true, objectTypeId: container.ok ? container.objectTypeId : path.objectTypeId };
 }
 
 /**

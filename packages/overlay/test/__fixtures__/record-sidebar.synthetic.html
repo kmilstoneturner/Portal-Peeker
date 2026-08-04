@@ -56,21 +56,22 @@
   </ul>
 
   <!--
-    Cards carrying no objectTypeId in their id. Real examples, both on the same
-    record: one has no slash at all, the other hyphenates. Neither parses, so
-    neither is read, which is what stops the generic [data-card-type] scope from
-    being a way in to every card on the page.
+    A CUSTOM card, built in the portal. Its id is a bare number with no object
+    type in it, which is what nearly every card on a real client record looks
+    like. It must annotate: the objectTypeId test is "must not contradict the
+    URL", not "must declare one". Requiring a declaration skipped every custom
+    card in a live portal, which was most of the sidebar.
   -->
-  <div data-card-type="MARKETING_LEAD_SCORES" data-card-id="MARKETING_LEAD_SCORES">
+  <div data-card-type="PROPERTIES_V3" data-card-id="4773" data-selenium-test="properties-card-content">
     <ul data-selenium-test="profile-properties-list">
-      <span data-test-id="no_object_type">
+      <span data-test-id="verticalmarket">
         <div data-deferred-property-input-root="true" data-deferred-property-input-state="editable" data-deferred-property-input-mode="display">
           <div>
             <div>
-              <div><label id="l-11" for="f-11">No Object Type</label></div>
+              <div><label id="l-11" for="f-11">Vertical Market</label></div>
               <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
               <div aria-labelledby="l-11" id="f-11">
-                <span><div><span data-selenium-test="property-input-no_object_type">--</span></div></span>
+                <span><div><span data-selenium-test="property-input-verticalmarket">--</span></div></span>
               </div>
             </div>
           </div>
@@ -78,7 +79,7 @@
       </span>
     </ul>
   </div>
-  <div data-card-type="OBJECT_HIGHLIGHT" data-card-id="OBJECT_HIGHLIGHT-FAS-0-1-1"></div>
+
 
   <!--
     An association card. Its objectTypeId is a real one, but it is the ASSOCIATED

@@ -49,6 +49,21 @@ export function placeApiName(anchor, propertyName, objectTypeId) {
     ? anchor.previousElementSibling
     : null;
 
+  // Anything else of ours in this parent is an orphan, and leaving it produces
+  // the same name printed twice. Observed live on the highlights strip: React
+  // re-rendered the value node and put the new one AHEAD of the node we had
+  // already placed, so the previousElementSibling test above missed and the next
+  // pass inserted a second one.
+  //
+  // Sweeping is safe in a way that almost nothing else here would be: these are
+  // nodes this file created, and React has never seen them, so removing one
+  // cannot desync a reconciler. Contrast removeApiNames, which takes out every
+  // node anywhere; this only tidies the one parent it is about to write to.
+  //
+  // It assumes one anchor per parent, which holds on every surface today and is
+  // asserted by a test rather than believed.
+  sweepStrays(anchor.parentNode, existing);
+
   if (existing) {
     if (existing.textContent !== propertyName) existing.textContent = propertyName;
     if (existing.getAttribute(OBJECT_TYPE_ATTRIBUTE) !== objectTypeId) {
@@ -67,6 +82,23 @@ export function placeApiName(anchor, propertyName, objectTypeId) {
 
   anchor.parentNode.insertBefore(node, anchor);
   return true;
+}
+
+/**
+ * Drop any node of ours in this parent except the one being kept.
+ *
+ * Snapshotted before removing: parent.children is live, and mutating it while
+ * iterating skips elements.
+ *
+ * @returns {number} how many were removed
+ */
+function sweepStrays(parent, keep) {
+  const strays = [];
+  for (const child of parent.children) {
+    if (child !== keep && isApiNameNode(child)) strays.push(child);
+  }
+  for (const stray of strays) stray.remove();
+  return strays.length;
 }
 
 /**
