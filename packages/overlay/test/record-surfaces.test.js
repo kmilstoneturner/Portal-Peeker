@@ -6,13 +6,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   NAME_FROM,
-  OBJECT_TYPE_FROM,
   SURFACES,
-  parseContainerId,
   parsePropertyInputTestId,
   parseRecordPath,
   readRecordRow,
-  readSurfaceContainer,
 } from '../src/record-surfaces.js';
 
 describe('parseRecordPath', () => {
@@ -44,64 +41,6 @@ describe('parseRecordPath', () => {
 
   it('refuses a non-string', () => {
     expect(parseRecordPath(undefined)).toEqual({ ok: false, reason: 'no-path' });
-  });
-});
-
-describe('parseContainerId', () => {
-  it('reads the objectTypeId out of a card id', () => {
-    expect(parseContainerId('PROPERTIES_V3/0-1/V2')).toEqual({ ok: true, objectTypeId: '0-1' });
-  });
-
-  it('does not require a variant segment', () => {
-    expect(parseContainerId('PROPERTIES_LIST/2-98765')).toMatchObject({
-      ok: true,
-      objectTypeId: '2-98765',
-    });
-  });
-
-  // Anchored on the \d+-\d+ shape, not on "the segment after the first slash",
-  // so an incidental slash cannot invent an object type.
-  it('refuses a card id carrying no object type', () => {
-    expect(parseContainerId('MARKETING_LEAD_SCORES/summary')).toEqual({
-      ok: false,
-      reason: 'no-object-type-id',
-    });
-  });
-
-  it('refuses a non-string', () => {
-    expect(parseContainerId(null)).toEqual({ ok: false, reason: 'no-container-id' });
-  });
-});
-
-describe('readSurfaceContainer', () => {
-  it('accepts a card for the object the page is showing', () => {
-    expect(
-      readSurfaceContainer({ containerId: 'PROPERTIES_V3/0-1/V2', pathname: '/contacts/1/record/0-1/2' }),
-    ).toEqual({ ok: true, objectTypeId: '0-1' });
-  });
-
-  // The case that matters: a card left in the DOM for a different object, or an
-  // SPA navigation caught mid-swap. Nothing inside it may be read.
-  it('refuses a card for a different object', () => {
-    expect(
-      readSurfaceContainer({
-        containerId: 'PROPERTIES_V3/2-98765/V2',
-        pathname: '/contacts/1/record/0-1/2',
-      }),
-    ).toEqual({ ok: false, reason: 'object-type-mismatch' });
-  });
-
-  it('refuses when the page is not a record page', () => {
-    expect(
-      readSurfaceContainer({
-        containerId: 'PROPERTIES_V3/0-1/V2',
-        pathname: '/contacts/1/objects/0-1/views/all/list',
-      }),
-    ).toMatchObject({ ok: false, reason: 'not-a-record-page' });
-  });
-
-  it('refuses with no arguments at all', () => {
-    expect(readSurfaceContainer()).toMatchObject({ ok: false });
   });
 });
 
@@ -189,12 +128,11 @@ describe('readRecordRow', () => {
 describe('the SURFACES table', () => {
   it('declares the fields every surface needs', () => {
     for (const surface of SURFACES) {
-      for (const field of ['id', 'container', 'row', 'rowAttribute', 'prefix', 'nameFrom', 'objectTypeFrom']) {
+      for (const field of ['id', 'container', 'row', 'rowAttribute', 'prefix', 'nameFrom']) {
         expect(typeof surface[field], `${surface.id}.${field}`).toBe('string');
         expect(surface[field], `${surface.id}.${field}`).not.toBe('');
       }
       expect([NAME_FROM.CROSS_CHECK, NAME_FROM.PREFIX]).toContain(surface.nameFrom);
-      expect([OBJECT_TYPE_FROM.CONTAINER, OBJECT_TYPE_FROM.PATH]).toContain(surface.objectTypeFrom);
       // Optional, but never something other than a selector when present.
       expect(['string', 'object'], `${surface.id}.anchor`).toContain(typeof surface.anchor);
     }
@@ -227,12 +165,6 @@ describe('the SURFACES table', () => {
     }
   });
 
-  it('declares a container attribute exactly when it cross-checks the object type', () => {
-    for (const surface of SURFACES) {
-      const needed = surface.objectTypeFrom === OBJECT_TYPE_FROM.CONTAINER;
-      expect(typeof surface.containerAttribute === 'string', `${surface.id}`).toBe(needed);
-    }
-  });
 
   it('gives every surface a distinct id', () => {
     const ids = SURFACES.map((surface) => surface.id);

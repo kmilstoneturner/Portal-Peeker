@@ -105,30 +105,31 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
   });
 
   it('reports what it did', () => {
-    // 5 containers accepted across the three surfaces. Two carry rows: the Key
-    // information card and the custom card with the bare numeric id. The rest
-    // are the highlight card (which the sidebar surface also matches and finds
-    // nothing in), the highlights container, and the All properties panel.
+    // 4 containers across the three surfaces: two PROPERTIES_V3 cards (HubSpot's
+    // own and a custom one), the highlights container, and the All properties
+    // panel. The ASSOCIATION_V3 card is not among them, and it is the card type
+    // that excludes it.
     //
     // The panel's eight rows are four real ones plus the two skeletons and the
     // nested control that only the anchor check turns away.
     expect(annotateRecordProperties(document)).toEqual({
-      cards: 5,
+      cards: 4,
       rows: 21,
       inserted: 13,
       skipped: 8,
     });
   });
 
-  // "Must not contradict the URL", not "must declare an object type". Nearly
-  // every card on a real client record is a custom one whose id is a bare
-  // number, and requiring a declaration skipped all of them.
+  // Nearly every card on a real client record is a custom one whose id is a bare
+  // number. Reading the object type off the card skipped all of them.
   it('reads a custom card whose id declares no object type', () => {
     annotateRecordProperties(document);
     expect(names()).toContain('verticalmarket');
   });
 
-  it('still refuses a card that declares a different object', () => {
+  // The card TYPE is the scope now, and it is what keeps another kind of card
+  // out even when that card carries the properties grammar.
+  it('never opens a card of another type', () => {
     annotateRecordProperties(document);
     expect(names()).not.toContain('wrong_object');
   });
@@ -262,10 +263,9 @@ describe('rows and nodes it must not touch', () => {
     expect(names()).not.toContain('no_anchor');
   });
 
-  // Withdrawal is per row everywhere except here. Being the right card is what
-  // makes a bare name inside it trustworthy, so a card for another object has no
-  // weaker reading to fall back on.
-  it('skips a whole card whose objectTypeId disagrees with the URL', () => {
+  // Withdrawal is per row everywhere. A card of the wrong type is not a page of
+  // rows we declined, it is a page we never had grounds to open.
+  it('never reads rows out of a card the table does not claim', () => {
     annotateRecordProperties(document);
     expect(names()).not.toContain('wrong_object');
   });

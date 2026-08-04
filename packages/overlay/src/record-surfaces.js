@@ -58,10 +58,7 @@
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
 import { afterPrefix, nameProblem, refuse } from './test-id.js';
 
-// objectTypeId is 0-N for stock objects and 2-N for custom ones. Anchored on
-// that shape rather than on "the segment after the first slash", the same choice
-// and for the same reason as CELL_VALUE in property-rows.js.
-const OBJECT_TYPE = /^[^/]+\/(\d+-\d+)(?:\/|$)/;
+// objectTypeId is 0-N for stock objects and 2-N for custom ones.
 const PATH_OBJECT_TYPE = /\/record\/(\d+-\d+)(?:\/|$)/;
 
 const PROPERTY_INPUT_PREFIX = 'property-input-';
@@ -71,23 +68,6 @@ const HIGHLIGHT_PREFIX = 'highlight-property-display-';
 export const NAME_FROM = {
   CROSS_CHECK: 'cross-check',
   PREFIX: 'prefix',
-};
-
-/**
- * Where a surface's objectTypeId comes from.
- *
- * CONTAINER means the container's id must NOT CONTRADICT the URL. It is not
- * "must declare one": most cards on a real portal are custom and their ids carry
- * no object type at all, so demanding a declaration skips them. A card that does
- * declare one and names a different object is turned away.
- *
- * PATH is for containers with no id to read in the first place. The All
- * properties panel is a modal with none, and the highlights card id
- * (OBJECT_HIGHLIGHT-FAS-0-1-1) hyphenates where the grammar wants slashes.
- */
-export const OBJECT_TYPE_FROM = {
-  CONTAINER: 'container',
-  PATH: 'path',
 };
 
 /**
@@ -102,21 +82,18 @@ export const SURFACES = [
   {
     id: 'sidebar-properties',
     nameFrom: NAME_FROM.CROSS_CHECK,
-    objectTypeFrom: OBJECT_TYPE_FROM.CONTAINER,
 
-    // Every card on a record page carries data-card-type and data-card-id,
-    // whatever kind of card it is, so this scopes on the generic axis rather
-    // than on one card's own attribute. That is what lets a custom card become
-    // another entry in this table instead of another special case.
+    // The card TYPE, not one card's id. Every card holding a properties list is
+    // a PROPERTIES_V3, on both portals this was read against: HubSpot's own
+    // "About this contact" card and every custom card an admin builds. Their ids
+    // differ wildly (PROPERTIES_V3/0-1/V2 against a bare numeric 4773) and none
+    // of that matters, because the type is what says which grammar is inside.
     //
-    // data-card-id is `{cardType}/{objectTypeId}/{variant}` on HubSpot's stock
-    // cards (PROPERTIES_V3/0-1/V2) and a BARE NUMERIC ID on a portal's own
-    // custom ones (4773). Both are read, because readSurfaceContainer tests
-    // "must not contradict the URL" rather than "must declare an object type".
-    // A real client portal is mostly custom cards, and requiring a declaration
-    // skipped every one of them.
-    container: '[data-card-type]',
-    containerAttribute: 'data-card-id',
+    // Nothing here reads the object type off the card. That was tried and it
+    // skipped most of a real client's sidebar, since custom card ids declare
+    // none. It also protected nothing: the only cards it excluded were
+    // association cards, and those carry no properties list to begin with.
+    container: '[data-card-type="PROPERTIES_V3"]',
 
     list: 'ul[data-selenium-test="profile-properties-list"]',
 
@@ -151,7 +128,6 @@ export const SURFACES = [
     // in the DOM yet, which the observer picks up when it expands.
     id: 'all-properties',
     nameFrom: NAME_FROM.PREFIX,
-    objectTypeFrom: OBJECT_TYPE_FROM.PATH,
 
     // A modal, rendered outside the card tree, so it has no data-card-type and
     // declares no object. Scoping still matters and is doing real work here: an
@@ -173,7 +149,6 @@ export const SURFACES = [
     // The highlights strip across the top of a record.
     id: 'record-highlights',
     nameFrom: NAME_FROM.PREFIX,
-    objectTypeFrom: OBJECT_TYPE_FROM.PATH,
 
     // Scoped to the highlight card's content rather than to [data-card-type]:
     // that card's id is OBJECT_HIGHLIGHT-FAS-0-1-1, which hyphenates where the
@@ -209,59 +184,6 @@ export function parseRecordPath(pathname) {
   const match = pathname.match(PATH_OBJECT_TYPE);
   if (!match) return refuse('not-a-record-page');
   return { ok: true, objectTypeId: match[1] };
-}
-
-/**
- * The objectTypeId a properties card declares, read from its own attribute.
- *
- * @returns {{ok: true, objectTypeId: string} | {ok: false, reason: string}}
- */
-export function parseContainerId(value) {
-  if (typeof value !== 'string') return refuse('no-container-id');
-  const match = value.match(OBJECT_TYPE);
-  if (!match) return refuse('no-object-type-id');
-  return { ok: true, objectTypeId: match[1] };
-}
-
-/**
- * Whether a container belongs to the object this page is showing.
- *
- * Checked once per card rather than once per row. A card that fails this is not
- * partially read: nothing inside it is touched at all, because the thing that
- * makes its bare names trustworthy is precisely that it is the right card.
- *
- * @returns {{ok: true, objectTypeId: string} | {ok: false, reason: string}}
- */
-export function readSurfaceContainer({ surface, containerId, pathname } = {}) {
-  const path = parseRecordPath(pathname);
-  if (!path.ok) return path;
-
-  // Nothing to cross-check against. The URL is the only statement of which
-  // object is on screen, and a surface only opts into this when its container
-  // genuinely declares nothing.
-  if (surface && surface.objectTypeFrom === OBJECT_TYPE_FROM.PATH) {
-    return { ok: true, objectTypeId: path.objectTypeId };
-  }
-
-  // The test is MUST NOT CONTRADICT, not "must declare". A card that names an
-  // object has to name this page's; a card that names none is not evidence
-  // against itself.
-  //
-  // This is not a nicety. HubSpot's stock card is PROPERTIES_V3/0-1/V2, but a
-  // custom card built in a portal is `data-card-id="4773"`, a bare numeric
-  // id with no object type in it at all. Requiring one meant every custom card
-  // on a real client portal was skipped whole, which is most of the sidebar.
-  //
-  // What the check still catches is the case it was written for: an association
-  // card declaring 0-2 while the page shows 0-1. Structure carries the rest, and
-  // it carries most of the weight here anyway, since a card has to contain a
-  // profile-properties-list and rows whose two name sources agree.
-  const container = parseContainerId(containerId);
-  if (container.ok && container.objectTypeId !== path.objectTypeId) {
-    return refuse('object-type-mismatch');
-  }
-
-  return { ok: true, objectTypeId: container.ok ? container.objectTypeId : path.objectTypeId };
 }
 
 /**

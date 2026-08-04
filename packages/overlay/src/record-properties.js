@@ -7,13 +7,12 @@
 //
 // Failure is per row, not per page, exactly as on the property settings table. A
 // sidebar field with no API name under it is visibly missing and cannot mislead
-// anyone, and the fields either side of it are still correct. The one thing that
-// withdraws wider than a row is a container whose objectTypeId disagrees with
-// the URL's: nothing inside such a card is read at all, because being the right
-// card is the whole reason its bare names can be trusted.
+// anyone, and the fields either side of it are still correct. Nothing withdraws
+// wider than a row: a card is either the kind this table knows how to read or it
+// is never opened.
 
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
-import { SURFACES, parseRecordPath, readRowName, readSurfaceContainer } from './record-surfaces.js';
+import { SURFACES, parseRecordPath, readRowName } from './record-surfaces.js';
 import { placeApiName, removeApiNames } from './api-name-node.js';
 
 /** The path of the document being annotated, or '' where there is none. */
@@ -57,27 +56,20 @@ export function annotateRecordProperties(root) {
   const result = { inserted: 0, skipped: 0, rows: 0, cards: 0 };
   if (!root || typeof root.querySelectorAll !== 'function') return result;
 
-  const pathname = pathOf(root);
+  // Which object this page is showing, stated once for the whole pass. A record
+  // page shows exactly one, and its own URL is the statement.
+  //
+  // Cards were briefly required to declare it too, and be turned away when they
+  // did not. That was wrong twice over: HubSpot's stock card declares an object
+  // type but a portal's own custom cards carry a bare numeric id, so the rule
+  // skipped most of a real client's sidebar; and it was never what made a name
+  // readable anyway. The card type, the properties list, the direct-child rows,
+  // the per-row marker, and the two agreeing sources do that.
+  const page = parseRecordPath(pathOf(root));
+  if (!page.ok) return result;
 
   for (const surface of SURFACES) {
     for (const container of root.querySelectorAll(surface.container)) {
-      let card;
-      try {
-        card = readSurfaceContainer({
-          surface,
-          containerId: surface.containerAttribute
-            ? container.getAttribute(surface.containerAttribute)
-            : null,
-          pathname,
-        });
-      } catch {
-        continue;
-      }
-
-      // Not this page's object, or an id shape nobody recognises. Skipped whole
-      // and not counted: these are not rows we declined, they are rows we never
-      // had grounds to look at.
-      if (!card.ok) continue;
       result.cards += 1;
 
       // A surface only declares a list when its rows need scoping to direct
@@ -89,7 +81,7 @@ export function annotateRecordProperties(root) {
         for (const row of scope.querySelectorAll(surface.row)) {
           result.rows += 1;
           try {
-            if (!annotateRow(row, surface, card.objectTypeId)) {
+            if (!annotateRow(row, surface, page.objectTypeId)) {
               result.skipped += 1;
               continue;
             }

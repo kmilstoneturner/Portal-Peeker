@@ -13,8 +13,8 @@
   inside the label (TruncateString and friends) are collapsed, because no rule
   reads them and depth there changes no behaviour.
 
-  Pair this with a path of /contacts/1/record/0-1/2 so the card's objectTypeId
-  agrees with the page's.
+  Pair this with a path of /contacts/1/record/0-1/2. The object type comes from
+  the path alone; no card is asked to declare one.
 -->
 <div data-test-id="left-sidebar">
   <!--
@@ -58,9 +58,9 @@
   <!--
     A CUSTOM card, built in the portal. Its id is a bare number with no object
     type in it, which is what nearly every card on a real client record looks
-    like. It must annotate: the objectTypeId test is "must not contradict the
-    URL", not "must declare one". Requiring a declaration skipped every custom
-    card in a live portal, which was most of the sidebar.
+    like. It must annotate. Nothing reads the object type off a card: the card
+    TYPE is the scope, and requiring an id to declare an object skipped every
+    custom card in a live portal, which was most of the sidebar.
   -->
   <div data-card-type="PROPERTIES_V3" data-card-id="4773" data-selenium-test="properties-card-content">
     <ul data-selenium-test="profile-properties-list">
@@ -80,27 +80,8 @@
     </ul>
   </div>
 
-
-  <!--
-    An association card. Its objectTypeId is a real one, but it is the ASSOCIATED
-    object's, not this page's, so it disagrees with the URL and is skipped. That
-    is right today. If association cards are ever annotated they will need their
-    own entry with their own idea of which object type is correct.
-  -->
-  <div data-card-type="ASSOCIATION_V3" data-card-id="ASSOCIATION_V3/0-2">
-    <!--
-      A real one, and the reason the All properties surface is container scoped
-      even though its row ids carry a prefix. This is the associated COMPANY's
-      `name` property sitting on a contact record. The prefix says "a property
-      input"; only the scope says "a property input belonging to the record you
-      are looking at".
-    -->
-    <div data-test-id="property-input-name">
-      <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
-    </div>
-  </div>
-
-  <!-- The properties card for this page's object. -->
+  <!-- HubSpot's own card, whose id does declare an object type. Also annotated,
+       and by exactly the same route: the type matched, nothing read the id. -->
   <div data-card-type="PROPERTIES_V3" data-card-id="PROPERTIES_V3/0-1/V2" data-selenium-test="properties-card-content">
     <div data-selenium-test="profile-properties">
       <ul data-selenium-test="profile-properties-list">
@@ -286,12 +267,15 @@
   </div>
 
   <!--
-    A properties card for a different object than the one the page is showing.
-    Withdrawn whole rather than per row: being the right card is the entire
-    reason a bare name inside it can be trusted, so if that fails there is no
-    weaker reading to fall back on.
+    A card of another type, carrying the properties grammar anyway. The card TYPE
+    is the scope, so this is never opened.
+
+    Association cards are the real reason this matters: their property ids are
+    genuine but belong to the ASSOCIATED object rather than the record on screen.
+    A live one carries no properties list at all, so this is belt and braces on
+    the type selector rather than a shape anyone has seen.
   -->
-  <div data-card-type="PROPERTIES_V3" data-card-id="PROPERTIES_V3/2-98765/V2" data-selenium-test="properties-card-content">
+  <div data-card-type="ASSOCIATION_V3" data-card-id="ASSOCIATION_V3/0-2" data-selenium-test="properties-card-content">
     <div data-selenium-test="profile-properties">
       <ul data-selenium-test="profile-properties-list">
         <span data-test-id="wrong_object">
@@ -308,6 +292,16 @@
           </div>
         </span>
       </ul>
+
+      <!--
+        The associated COMPANY's `name` property, on a contact record. This is
+        why the All properties surface is container scoped even though its row
+        ids carry a prefix: the prefix says "a property input", only the scope
+        says "one belonging to the record you are looking at".
+      -->
+      <div data-test-id="property-input-name">
+        <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+      </div>
     </div>
   </div>
 </div>
