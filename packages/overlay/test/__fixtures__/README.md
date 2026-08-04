@@ -38,9 +38,9 @@ the cases where a rule must **not** fire, which is the same reason
 
 ## `record-sidebar.synthetic.html`
 
-A contact record's properties card. Load it with a path of
-`/contacts/1/record/0-1/2`, since a card is only read when the `objectTypeId` it
-declares matches the one in the URL.
+A contact record's properties cards. Load it with a path of
+`/contacts/1/record/0-1/2`: the object type comes from the path, and nothing asks
+a card to declare one.
 
 This surface is harder than the table, and the fixture is shaped around why. The
 primary source is the **bare property name** (`data-test-id="lifecyclestage"`),
