@@ -7,15 +7,26 @@
 // serves raw and only raw. That is what keeps the capture path parser-free: a
 // bug in the trim can cost an export, never a capture.
 //
-// The preferences this page owns (the four checkboxes) live in localStorage
-// rather than chrome.storage, which keeps the extension at zero permissions.
-// Nothing about a capture is ever persisted anywhere.
+// Two stores, and the split is deliberate: the backend follows the consumer.
+//
+// The four export checkboxes are read by this page and nowhere else, and they
+// describe a file this page builds. They stay in the popup's own localStorage.
+//
+// The Settings page toggles are obeyed by a content script running on
+// hubspot.com, which has a different origin and cannot see this page's
+// localStorage at all. Those live in chrome.storage.local, which is the one
+// permission this extension asks for. Local, never sync, so settings do not
+// leave the machine.
+//
+// Nothing about a capture is persisted in either.
 
 import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND } from './lib/protocol.js';
 import { summarize } from './lib/summary.js';
 import { trim, estimateTokens } from './lib/trim.js';
 import { uiNumbersFromText, addUiNumbers } from './lib/ui-numbers.js';
 import { buildAiContext, checkAiContext, addAiContext, MODIFICATIONS } from './lib/ai-context.js';
+import { SETTINGS } from './lib/settings.js';
+import { readSettings, writeSetting, settingsStoreAvailable } from './lib/settings-store.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -45,6 +56,12 @@ const view = {
   context: el('opt-context'),
   contextInfo: el('context-info'),
   contextTip: el('context-tip'),
+  navHome: el('nav-home'),
+  navSettings: el('nav-settings'),
+  pageHome: el('page-home'),
+  pageSettings: el('page-settings'),
+  settingsList: el('settings-list'),
+  settingsFoot: el('set-foot'),
 };
 
 const STORAGE = {
@@ -58,6 +75,10 @@ let tabId = null;
 let snapshot = null;
 /** trim results for the open capture, keyed by option combination. */
 let variants = new Map();
+/** Which page the rail is showing. The popup always opens on Home. */
+let page = 'home';
+/** Whether Home has a capture badge to show. Settings never does. */
+let hasKind = false;
 
 // ---------------------------------------------------------------- format
 
@@ -258,6 +279,7 @@ function buildExport(raw, source, cached = false) {
 
 function showEmpty(hint) {
   view.capture.hidden = true;
+  hasKind = false;
   view.kind.hidden = true;
   view.empty.hidden = false;
   if (hint) view.emptyHint.textContent = hint;
@@ -330,7 +352,10 @@ function renderOptions(trimmable, reason, numbersCheck, contextCheck) {
 function render(status) {
   view.empty.hidden = true;
   view.capture.hidden = false;
-  view.kind.hidden = false;
+  hasKind = true;
+  // The header is shared, but the capture badge belongs to Home. showPage owns
+  // whether it is actually visible right now.
+  view.kind.hidden = page !== 'home';
   view.kind.textContent = KIND_LABEL[status.kind] || 'captured';
 
   const summary = summaryFor(status.raw);
@@ -447,6 +472,121 @@ view.trim.addEventListener('change', onOptionChange);
 view.strip.addEventListener('change', onOptionChange);
 view.numbers.addEventListener('change', onOptionChange);
 view.context.addEventListener('change', onOptionChange);
+
+// ---------------------------------------------------------------- nav
+
+const PAGES = [
+  { id: 'home', tab: view.navHome, panel: view.pageHome },
+  { id: 'settings', tab: view.navSettings, panel: view.pageSettings },
+];
+
+function showPage(id, { focus = false } = {}) {
+  page = id;
+  for (const entry of PAGES) {
+    const on = entry.id === id;
+    entry.panel.hidden = !on;
+    entry.tab.setAttribute('aria-selected', String(on));
+    // Roving tabindex: one stop for the whole rail, arrows move within it.
+    entry.tab.tabIndex = on ? 0 : -1;
+    if (on && focus) entry.tab.focus();
+  }
+  view.kind.hidden = !(id === 'home' && hasKind);
+}
+
+function onRailKeydown(event) {
+  const index = PAGES.findIndex((entry) => entry.tab === event.target);
+  if (index === -1) return;
+
+  const moves = {
+    ArrowDown: index + 1,
+    ArrowRight: index + 1,
+    ArrowUp: index - 1,
+    ArrowLeft: index - 1,
+    Home: 0,
+    End: PAGES.length - 1,
+  };
+  if (!(event.key in moves)) return;
+
+  event.preventDefault();
+  const next = (moves[event.key] + PAGES.length) % PAGES.length;
+  showPage(PAGES[next].id, { focus: true });
+}
+
+for (const entry of PAGES) {
+  entry.tab.addEventListener('click', () => showPage(entry.id));
+  entry.tab.addEventListener('keydown', onRailKeydown);
+}
+
+// ---------------------------------------------------------------- settings
+
+/**
+ * Build the Settings page from the table, so adding a setting is one entry in
+ * packages/overlay/src/settings.js and nothing here.
+ *
+ * Nodes, not markup from strings, same rule as setDelta above.
+ */
+function renderSettings() {
+  view.settingsList.replaceChildren();
+
+  for (const setting of SETTINGS) {
+    const label = document.createElement('label');
+    label.className = 'check';
+    label.htmlFor = setting.input;
+
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = setting.input;
+    input.checked = setting.default;
+    input.addEventListener('change', () => writeSetting(setting.id, input.checked));
+
+    const text = document.createElement('span');
+    text.textContent = setting.label;
+
+    label.append(input, text);
+
+    const note = document.createElement('p');
+    note.className = 'set-note';
+    note.textContent = setting.note;
+
+    view.settingsList.append(label, note);
+  }
+
+  // Empty unless something is wrong. Where settings live is stated in
+  // PRIVACY.md and the README, which is where someone goes to check it, and
+  // repeating it on every visit to a two-line panel was not earning its space.
+  view.settingsFoot.textContent = '';
+
+  // A checkbox that silently resets is worse than one that says why. This can
+  // only happen on a stale unpacked load, where Chrome serves these files fresh
+  // from disk but still runs a manifest from before the storage permission
+  // existed. Withdrawn with the reason, same posture as the export options.
+  if (!settingsStoreAvailable()) {
+    for (const setting of SETTINGS) {
+      const input = el(setting.input);
+      if (!input) continue;
+      input.disabled = true;
+      input.parentElement.classList.add('is-disabled');
+    }
+    view.settingsFoot.textContent =
+      'Settings cannot be saved right now. Reload Portal Peeker in chrome://extensions, ' +
+      'then reopen this popup.';
+  }
+}
+
+/**
+ * Fill the checkboxes in from storage.
+ *
+ * Async, unlike restoreOptions: chrome.storage is promise based. That is
+ * invisible because the Settings page is hidden when the popup opens, and the
+ * table's defaults are already rendered before this resolves.
+ */
+async function restoreSettings() {
+  const values = await readSettings();
+  for (const setting of SETTINGS) {
+    const input = el(setting.input);
+    if (input) input.checked = values[setting.id];
+  }
+}
 
 // ---------------------------------------------------------------- info tip
 
@@ -611,4 +751,7 @@ function refreshErrorText(result) {
 }
 
 restoreOptions();
+renderSettings();
+restoreSettings();
+showPage('home');
 load();
