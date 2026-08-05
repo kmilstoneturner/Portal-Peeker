@@ -402,3 +402,83 @@
     </div>
   </div>
 </div>
+
+<!--
+  "Contact profile" (PROPERTIES_LIST). Emits no internal name anywhere: the same
+  form control shell as the Key information card, but the value span is bare
+  where that one carries property-input-{name}. The label is the only handle,
+  resolved against HubSpot's property metadata by property-names.js.
+-->
+<div data-card-type="PROPERTIES_LIST" data-card-id="PROPERTIES_LIST/0-1/0">
+  <div data-test-id="crm-card-content">
+    <div data-test-id="crm-property-list-container">
+
+      <!-- Resolves. Note the casing differs from the property's own label
+           ("Company Name"), which is why matching folds case. -->
+      <div data-test-id="crm-property-list-item">
+        <div data-deferred-property-input-root="true">
+          <div><div>
+            <div><label id="c-1" for="c-f1">Company name</label></div>
+            <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+            <div aria-labelledby="c-1" id="c-f1"><span><div><span>Sample Co</span></div></span></div>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- Resolves exactly. -->
+      <div data-test-id="crm-property-list-item">
+        <div data-deferred-property-input-root="true">
+          <div><div>
+            <div><label id="c-2" for="c-f2">City</label></div>
+            <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+            <div aria-labelledby="c-2" id="c-f2"><span><div><span>--</span></div></span></div>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- A label no property carries. Skipped: not found is not a guess. -->
+      <div data-test-id="crm-property-list-item">
+        <div data-deferred-property-input-root="true">
+          <div><div>
+            <div><label id="c-3" for="c-f3">Not A Real Label</label></div>
+            <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+            <div aria-labelledby="c-3" id="c-f3"><span><div><span>--</span></div></span></div>
+          </div></div>
+        </div>
+      </div>
+
+      <!-- Two properties share this label. Ambiguity withdraws the row, which
+           is the whole reason one source is allowed here. -->
+      <div data-test-id="crm-property-list-item">
+        <div data-deferred-property-input-root="true">
+          <div><div>
+            <div><label id="c-4" for="c-f4">Shared Label</label></div>
+            <span data-test-id="hover-content-wrapper"><button type="button">Details</button></span>
+            <div aria-labelledby="c-4" id="c-f4"><span><div><span>--</span></div></span></div>
+          </div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!--
+  "Data highlights" (DATA_HIGHLIGHTS). A well of label/value pairs, two <p>
+  children per row and no name anywhere.
+-->
+<div data-card-type="DATA_HIGHLIGHTS" data-card-id="DATA_HIGHLIGHTS/0-1/0">
+  <div data-test-id="crm-card-content">
+    <ul data-test-id="crm-data-highlights-list">
+      <li data-test-id="crm-data-highlights-item">
+        <div><p>Create Date</p><p><span>07/02/2026</span></p></div>
+      </li>
+      <li data-test-id="crm-data-highlights-item">
+        <div><p>Lifecycle Stage</p><p><span>Customer</span></p></div>
+      </li>
+      <li data-test-id="crm-data-highlights-item">
+        <div><p>Not A Real Label</p><p><span>--</span></p></div>
+      </li>
+    </ul>
+  </div>
+</div>

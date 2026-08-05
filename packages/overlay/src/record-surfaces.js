@@ -42,7 +42,14 @@
 //                          a property input belonging to the record you are
 //                          looking at".
 //
-// WHAT CANNOT BE DONE, AND WHY IT IS NOT LISTED BELOW
+//   NAME_FROM.LABEL        the card emits no name at all, so the rendered label
+//                          is resolved against HubSpot's own property metadata.
+//                          Used by Contact profile and Data highlights. One
+//                          source, and allowed to be, because the failure is
+//                          detectable: a label matching no property or two
+//                          properties skips the row. See property-names.js.
+//
+// WHERE THE LABEL SURFACES CAME FROM
 //
 // Two card types render properties and emit no internal name anywhere:
 //
@@ -61,24 +68,20 @@
 // every row enumerated, inline scripts searched for bootstrapped card config
 // (none), and all 245 window globals searched for property metadata (none).
 //
-// The names do exist, in two responses the page already fetches:
+// So these two read the label and resolve it against the property metadata
+// HubSpot already fetches. That response is INTERCEPTED, never requested: see
+// property-names-interceptor.js, and PRIVACY.md, which says so in the copy.
 //
-//   /api/crm-record-cards/v4/container-views/get-view   card -> ordered names
-//   /api/properties/v4/groups/{objectTypeId}/properties  name -> label
-//
-// Reading those is ADR-009 decision 1's escape hatch. It would work, and it was
-// declined: it makes the overlay a consumer of network responses for the first
-// time, which is a different extension than this one. So these cards are not in
-// the table because they cannot be, not because nobody got to them.
-//
-// Association cards are absent for a third reason: their property ids are real
-// but belong to the ASSOCIATED object rather than the record on screen.
+// Association cards remain absent, for a reason neither route fixes: their
+// property ids are real but belong to the ASSOCIATED object rather than the
+// record on screen.
 //
 // Everything is exported inline. A trailing `export { ... }` block is not
 // bundlable: see the note in test-id.js.
 
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
 import { afterPrefix, nameProblem, refuse } from './test-id.js';
+import { lookupPropertyName } from './property-names.js';
 
 // objectTypeId is 0-N for stock objects and 2-N for custom ones.
 const PATH_OBJECT_TYPE = /\/record\/(\d+-\d+)(?:\/|$)/;
@@ -90,6 +93,7 @@ const HIGHLIGHT_PREFIX = 'highlight-property-display-';
 export const NAME_FROM = {
   CROSS_CHECK: 'cross-check',
   PREFIX: 'prefix',
+  LABEL: 'label',
 };
 
 /**
@@ -190,6 +194,36 @@ export const SURFACES = [
     // immediately before the value itself.
     anchor: null,
   },
+
+  {
+    // "Contact profile". Renders the same form control shell as the Key
+    // information card, hover wrapper and all, and differs in exactly one way:
+    // the value span carries property-input-{name} there and nothing here. So
+    // the label is the only handle, and property-names.js resolves it.
+    id: 'contact-profile',
+    nameFrom: NAME_FROM.LABEL,
+    container: '[data-card-type="PROPERTIES_LIST"]',
+    row: '[data-test-id="crm-property-list-item"]',
+    label: 'label',
+    anchor: '[data-test-id="hover-content-wrapper"]',
+  },
+
+  {
+    // "Data highlights". A well of label/value pairs, each row a plain <li>
+    // with two <p> children and no name anywhere.
+    id: 'data-highlights',
+    nameFrom: NAME_FROM.LABEL,
+    container: '[data-card-type="DATA_HIGHLIGHTS"]',
+    row: '[data-test-id="crm-data-highlights-item"]',
+    label: 'div > p:nth-of-type(1)',
+
+    // nth-of-type rather than `p + p`, and the difference is not cosmetic.
+    // Inserting our <code> between the two paragraphs breaks their adjacency,
+    // so `p + p` would match on the first pass and never again, leaving the row
+    // uncorrectable when it re-renders. nth-of-type counts only paragraphs and
+    // is blind to what we put between them.
+    anchor: 'div > p:nth-of-type(2)',
+  },
 ];
 
 /**
@@ -270,8 +304,12 @@ export function readRecordRow({ rowTestId, inputTestId, prefix = PROPERTY_INPUT_
  *
  * @returns {{ok: true, propertyName: string} | {ok: false, reason: string}}
  */
-export function readRowName(surface, { rowValue, sourceValue } = {}) {
+export function readRowName(surface, { rowValue, sourceValue, labelValue, index } = {}) {
   if (!surface) return refuse('no-surface');
+
+  if (surface.nameFrom === NAME_FROM.LABEL) {
+    return lookupPropertyName(index, labelValue);
+  }
 
   if (surface.nameFrom === NAME_FROM.PREFIX) {
     return parsePrefixedName(rowValue, surface.prefix);

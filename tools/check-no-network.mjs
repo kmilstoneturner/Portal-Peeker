@@ -111,7 +111,10 @@ for (const key of ['optional_permissions', 'optional_host_permissions']) {
 const stripComments = (source) =>
   source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-for (const file of ['capture/bridge.js', 'capture/interceptor.js']) {
+// overlay/property-names.js joined this list when the overlay started reading
+// a response. It holds an index in page memory for the life of the tab and
+// persists nothing, and that is a claim worth a grep rather than a promise.
+for (const file of ['capture/bridge.js', 'capture/interceptor.js', 'overlay/property-names.js']) {
   const source = stripComments(readFileSync(join(DIST, file), 'utf8'));
   if (/\bchrome\.storage\b/.test(source)) {
     failures.push(`${file} references chrome.storage; the capture path persists nothing`);

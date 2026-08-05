@@ -128,13 +128,36 @@ describe('readRecordRow', () => {
 describe('the SURFACES table', () => {
   it('declares the fields every surface needs', () => {
     for (const surface of SURFACES) {
-      for (const field of ['id', 'container', 'row', 'rowAttribute', 'prefix', 'nameFrom']) {
+      for (const field of ['id', 'container', 'row', 'nameFrom']) {
         expect(typeof surface[field], `${surface.id}.${field}`).toBe('string');
         expect(surface[field], `${surface.id}.${field}`).not.toBe('');
       }
-      expect([NAME_FROM.CROSS_CHECK, NAME_FROM.PREFIX]).toContain(surface.nameFrom);
+      expect(Object.values(NAME_FROM), surface.id).toContain(surface.nameFrom);
       // Optional, but never something other than a selector when present.
       expect(['string', 'object'], `${surface.id}.anchor`).toContain(typeof surface.anchor);
+    }
+  });
+
+  // A label surface reads no id at all, so declaring one would mean a reader
+  // that silently prefers an attribute over the lookup. It owes a label
+  // selector instead, and owes nothing else.
+  it('makes label surfaces read a label and no id', () => {
+    for (const surface of SURFACES.filter((s) => s.nameFrom === NAME_FROM.LABEL)) {
+      expect(typeof surface.label, `${surface.id}.label`).toBe('string');
+      expect(surface.rowAttribute, `${surface.id}.rowAttribute`).toBeUndefined();
+      expect(surface.prefix, `${surface.id}.prefix`).toBeUndefined();
+      expect(surface.source, `${surface.id}.source`).toBeUndefined();
+    }
+  });
+
+  // The converse: a surface that reads an id must not also carry a label
+  // selector, or which one wins becomes a question nobody can answer from the
+  // table.
+  it('keeps id surfaces free of a label selector', () => {
+    for (const surface of SURFACES.filter((s) => s.nameFrom !== NAME_FROM.LABEL)) {
+      expect(typeof surface.rowAttribute, `${surface.id}.rowAttribute`).toBe('string');
+      expect(typeof surface.prefix, `${surface.id}.prefix`).toBe('string');
+      expect(surface.label, `${surface.id}.label`).toBeUndefined();
     }
   });
 

@@ -16,6 +16,7 @@ import { SETTING } from './settings.js';
 import { readSettings, onSettingsChanged } from './settings-store.js';
 import { propertyListFeature } from './property-list.js';
 import { recordPropertiesFeature } from './record-properties.js';
+import { startPropertyNames } from './property-names-store.js';
 
 const FEATURES = [propertyListFeature, recordPropertiesFeature];
 
@@ -140,6 +141,15 @@ export function apply(on) {
   enabled = on;
 
   if (on) {
+    // Only now, and only once. Two cards on a record page emit no property name
+    // at all, so they are annotated from HubSpot's own property metadata, read
+    // out of a response the page already fetched. Asking is what makes it cross
+    // the world boundary, and that is deliberately tied to the setting being on
+    // rather than to the page having loaded.
+    //
+    // The index can arrive after the observer's last mutation, so its callback
+    // schedules a pass rather than waiting for one.
+    startPropertyNames(schedule);
     connect();
     return;
   }

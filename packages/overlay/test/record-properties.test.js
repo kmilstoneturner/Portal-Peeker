@@ -24,6 +24,8 @@ import { dirname, join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { API_NAME_SELECTOR, removeApiNames } from '../src/api-name-node.js';
 import { annotateRecordProperties, recordSurfacesPresent } from '../src/record-properties.js';
+import { PROPERTY_NAMES_CHANNEL, PROPERTY_NAMES_MSG } from '../src/property-names-protocol.js';
+import { resetPropertyNames, startPropertyNames } from '../src/property-names-store.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = readFileSync(join(HERE, '__fixtures__', 'record-sidebar.synthetic.html'), 'utf8');
@@ -59,10 +61,56 @@ const MODAL = ['annualrevenue', 'label-foo', 'hs_email_domain', 'fax'];
 
 const ANNOTATED = [...SIDEBAR, ...HIGHLIGHTS, ...MODAL];
 
+// The two cards that emit no name. Resolved from HubSpot's property metadata,
+// which the fixture below stands in for.
+const LABELLED = ['company', 'city', 'createdate', 'lifecyclestage'];
+
+/** A properties response in the real shape, reduced. */
+const PROPERTIES_BODY = JSON.stringify([
+  {
+    name: 'contactinformation',
+    propertyDefinitions: [
+      // Casing differs from what the card renders, as it does live.
+      { property: { name: 'company', label: 'Company Name' } },
+      { property: { name: 'city', label: 'City' } },
+      { property: { name: 'createdate', label: 'Create Date' } },
+      { property: { name: 'lifecyclestage', label: 'Lifecycle Stage' } },
+      // Two properties, one label. Every row carrying it is declined.
+      { property: { name: 'shared_a', label: 'Shared Label' } },
+      { property: { name: 'shared_b', label: 'Shared Label' } },
+    ],
+  },
+]);
+
+/**
+ * Feed the store the way the interceptor does.
+ *
+ * dispatchEvent with an explicit source rather than postMessage, for a reason
+ * worth knowing: the store rejects any message whose source is not this window,
+ * which is what keeps a framed page from feeding it. Under vitest the global
+ * window is wrapped, so postMessage arrives with a source that fails that
+ * identity check even though it holds in a real browser. Setting source here
+ * exercises the guard rather than routing around it.
+ */
+const loadPropertyNames = async (objectTypeId = '0-1', body = PROPERTIES_BODY) => {
+  window.dispatchEvent(
+    new MessageEvent('message', {
+      source: window,
+      data: { channel: PROPERTY_NAMES_CHANNEL, type: PROPERTY_NAMES_MSG.LOADED, objectTypeId, body },
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 5));
+};
+
 beforeEach(() => {
   at(RECORD_URL);
   load();
+  resetPropertyNames();
 });
+
+// Listening is what makes the interceptor send anything at all, and the overlay
+// only starts when the setting is on. Started once for the whole file.
+startPropertyNames();
 
 describe('recordSurfacesPresent', () => {
   it('is true on a record page showing a properties card', () => {
@@ -105,18 +153,18 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
   });
 
   it('reports what it did', () => {
-    // 4 containers across the three surfaces: two PROPERTIES_V3 cards (HubSpot's
-    // own and a custom one), the highlights container, and the All properties
-    // panel. The ASSOCIATION_V3 card is not among them, and it is the card type
-    // that excludes it.
+    // No index loaded here, so the seven label rows all skip. That is the
+    // honest resting state of a page whose properties response never arrived.
     //
-    // The panel's eight rows are four real ones plus the two skeletons and the
-    // nested control that only the anchor check turns away.
+    // 6 containers: two PROPERTIES_V3 cards (HubSpot's own and a custom one),
+    // the highlights container, the All properties panel, Contact profile and
+    // Data highlights. The ASSOCIATION_V3 card is not among them, and it is the
+    // card type that excludes it.
     expect(annotateRecordProperties(document)).toEqual({
-      cards: 4,
-      rows: 21,
+      cards: 6,
+      rows: 28,
       inserted: 13,
-      skipped: 8,
+      skipped: 15,
     });
   });
 
@@ -315,6 +363,68 @@ describe('running more than once', () => {
 // Seen live on the highlights strip: `jobtitle` printed twice. React re-rendered
 // the value node and put the new one AHEAD of the node already placed, so the
 // previous-sibling test missed and the next pass inserted a second.
+// NAME_FROM.LABEL. Contact profile and Data highlights put no name in the page,
+// so the rendered label is resolved against HubSpot's property metadata. One
+// source, and allowed to be, because both failures are detectable: a label
+// matching nothing and a label matching two properties are equally a skip.
+describe('the surfaces resolved from a label', () => {
+  it('annotates nothing until the property index arrives', () => {
+    annotateRecordProperties(document);
+    for (const name of LABELLED) expect(names(), name).not.toContain(name);
+  });
+
+  it('annotates both cards once it has', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+    for (const name of LABELLED) expect(names(), name).toContain(name);
+  });
+
+  // The case that decided case folding. The card renders "Company name" while
+  // the property is labelled "Company Name".
+  it('resolves a label whose casing differs from the property label', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+    expect(names()).toContain('company');
+  });
+
+  it('skips a label no property carries', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+    expect(names()).not.toContain('Not A Real Label');
+  });
+
+  it('skips a label two properties share', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+    expect(names()).not.toContain('shared_a');
+    expect(names()).not.toContain('shared_b');
+  });
+
+  // A contact's labels must never resolve a company's rows.
+  it('ignores an index built for another object type', async () => {
+    await loadPropertyNames('0-2');
+    annotateRecordProperties(document);
+    for (const name of LABELLED) expect(names(), name).not.toContain(name);
+  });
+
+  it('ignores a body it cannot parse', async () => {
+    await loadPropertyNames('0-1', 'not json');
+    annotateRecordProperties(document);
+    for (const name of LABELLED) expect(names(), name).not.toContain(name);
+  });
+
+  // Data highlights has no label/value pair to sit between in the same sense:
+  // the name goes between the two paragraphs, matched by nth-of-type so our own
+  // node cannot break the selector on the next pass.
+  it('stays idempotent on the paragraph rows', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+    const first = names().filter((n) => n === 'createdate').length;
+    expect(annotateRecordProperties(document).inserted).toBe(0);
+    expect(names().filter((n) => n === 'createdate')).toHaveLength(first);
+  });
+});
+
 describe('a re-render that moves our node', () => {
   const jobtitle = () => document.querySelector('[data-test-id="highlight-property-display-jobtitle"]');
 

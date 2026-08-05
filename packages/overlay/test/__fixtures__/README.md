@@ -87,6 +87,25 @@ bare name, no second source, and no per-row marker.
 | `property-input-phone-button` inside `property-input-fax` | A control nested in another property's row, wearing the prefix. Same shape as `badge` inside `lifecyclestage`. Would otherwise annotate the fax row "phone-button". |
 | `property-input-name` in an `ASSOCIATION_V3` card | The associated **company's** `name` property on a contact record. The prefix says "a property input"; only the container scope says "one belonging to the record you are looking at". |
 
+### The two label surfaces
+
+Contact profile (`PROPERTIES_LIST`) and Data highlights (`DATA_HIGHLIGHTS`) put
+no internal name in the page at all, so their rows are resolved by matching the
+rendered label against HubSpot's property metadata. The fixture stands that
+metadata up in `record-properties.test.js` rather than here.
+
+| Row | Why it exists |
+|---|---|
+| "Company name" | Resolves, and the casing differs from the property's own label ("Company Name"). Matching folds case for exactly this reason: exact matching resolved 3 of 6 rows on a live card, folding case resolved 6 of 6. |
+| "City", "Create Date", "Lifecycle Stage" | The happy path on both cards. |
+| "Not A Real Label" (on both cards) | A label no property carries. Skipped: not found is not a guess. |
+| "Shared Label" | Two properties carry it. Ambiguity withdraws the row, which is the whole reason one source is allowed on these surfaces. |
+
+The Data highlights rows are two `<p>` children per row, and the annotation goes
+between them. The anchor is `p:nth-of-type(2)` rather than `p + p` deliberately:
+inserting our `<code>` breaks the adjacency, so `p + p` would match on the first
+pass and never again, leaving the row uncorrectable on re-render.
+
 The last three are why the anchor is a **validity check** and not merely an
 insertion point. Measured on a live panel: 101 nodes match the row selector, 33
 carry the anchor, 33 carry a label, and it is the same 33. Turning the anchor

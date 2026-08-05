@@ -49,6 +49,18 @@ const BUNDLES = [
     sources: [`${CAPTURE}/protocol.js`, `${CAPTURE}/endpoints.js`, `${CAPTURE}/bridge.js`],
   },
   {
+    // MAIN world, document_start, and both are required. The properties
+    // response is fetched once during page load and cached, so a script that
+    // arrives at document_idle has already missed it. Measured, not assumed.
+    out: 'overlay/property-names.js',
+    world: 'MAIN',
+    capturesFetch: true,
+    sources: [
+      `${OVERLAY}/property-names-protocol.js`,
+      `${OVERLAY}/property-names-interceptor.js`,
+    ],
+  },
+  {
     out: 'overlay/overlay.js',
     world: 'ISOLATED',
     capturesFetch: false,
@@ -57,6 +69,9 @@ const BUNDLES = [
       `${OVERLAY}/settings-store.js`,
       `${OVERLAY}/test-id.js`,
       `${OVERLAY}/property-rows.js`,
+      `${OVERLAY}/property-names-protocol.js`,
+      `${OVERLAY}/property-names.js`,
+      `${OVERLAY}/property-names-store.js`,
       `${OVERLAY}/record-surfaces.js`,
       `${OVERLAY}/api-name-node.js`,
       `${OVERLAY}/property-list.js`,

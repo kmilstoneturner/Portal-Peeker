@@ -17,7 +17,8 @@ the bundle.
 checkboxes, in `chrome.storage.local`, so they stay on this machine: never
 `chrome.storage.sync`, which would put them on Google's servers. Chrome shows no warning for
 `storage` because it grants no access to your data. Nothing about a capture goes in it, and
-the build fails if either capture script so much as mentions `chrome.storage`.
+the build fails if either capture script, or the record-page property reader, so much as
+mentions `chrome.storage`.
 
 ## What v1 does
 
@@ -68,10 +69,13 @@ Three places there: the **Key information** card in the left sidebar, the **View
 panel including every property group in it, and the **highlights strip** at the top of the
 record.
 
-That name is already on the page. HubSpot writes it into the page's own HTML attributes and
-simply does not display it, so this reads what is in front of you and makes it legible.
-**No request is made.** It is display only, it is undone the moment you untick the box, and
-it is off until you turn it on.
+On those three, the name is already on the page. HubSpot writes it into the page's own HTML
+attributes and simply does not display it, so this reads what is in front of you and makes it
+legible. It is display only, it is undone the moment you untick the box, and it is off until
+you turn it on.
+
+**Portal Peeker still makes no request of its own.** Where a name is not in the page at all,
+it reads a reply HubSpot's page already received. See below, and PRIVACY.md.
 
 The honest limit: this reads an internal HubSpot UI with no version and no stability promise.
 The name has to identify itself before it is shown, so when HubSpot changes its markup **the
@@ -80,14 +84,16 @@ confidence is skipped and the rest of the page is still annotated.
 
 That rule costs coverage, deliberately, and there are two gaps worth naming.
 
-**Two cards are not annotated at all: Contact profile, and Data highlights.** HubSpot does not
-put the internal name in the page for either. There is no attribute carrying it, only the
-label you can already see, so there is nothing to read. Association cards are skipped too,
-because the properties they show belong to the associated record rather than the one you are
-looking at.
+**Contact profile and Data highlights work differently.** HubSpot puts no internal name in the
+page for those two cards, only the label. So the label is matched against your portal's
+property list, which HubSpot's own page already fetched while loading. The extension reads
+that reply rather than asking for it, and only if you have the setting switched on.
 
-These are limits of the approach rather than things left undone. Portal Peeker reads what is
-already on your screen, and for those cards the name is not on it.
+A label matching no property, or matching two, leaves the row unannotated. That is the same
+rule as everywhere else here: a blank is fine, a wrong name is not.
+
+**Association cards are still skipped**, because the properties they show belong to the
+associated record rather than the one you are looking at.
 
 **The contact owner field is skipped** in the Key information card. Its control renders
 differently from every other field there and carries the name only once, and one unconfirmed

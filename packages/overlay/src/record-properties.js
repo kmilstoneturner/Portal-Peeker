@@ -13,6 +13,7 @@
 
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
 import { SURFACES, parseRecordPath, readRowName } from './record-surfaces.js';
+import { propertyNameIndex } from './property-names-store.js';
 import { placeApiName, removeApiNames } from './api-name-node.js';
 
 /** The path of the document being annotated, or '' where there is none. */
@@ -68,6 +69,12 @@ export function annotateRecordProperties(root) {
   const page = parseRecordPath(pathOf(root));
   if (!page.ok) return result;
 
+  // Only the label surfaces need this, and it is fetched once per page by
+  // HubSpot rather than by us. Null until the interceptor's message arrives, and
+  // null forever on a page where it never did, which costs those surfaces and
+  // nothing else. Read once per pass rather than once per row.
+  const index = propertyNameIndex(page.objectTypeId);
+
   for (const surface of SURFACES) {
     for (const container of root.querySelectorAll(surface.container)) {
       result.cards += 1;
@@ -81,7 +88,7 @@ export function annotateRecordProperties(root) {
         for (const row of scope.querySelectorAll(surface.row)) {
           result.rows += 1;
           try {
-            if (!annotateRow(row, surface, page.objectTypeId)) {
+            if (!annotateRow(row, surface, page.objectTypeId, index)) {
               result.skipped += 1;
               continue;
             }
@@ -107,7 +114,7 @@ export function annotateRecordProperties(root) {
  *   host's cycle breaker counts. A correction is not an insertion, and neither
  *   is a skip.
  */
-function annotateRow(row, surface, objectTypeId) {
+function annotateRow(row, surface, objectTypeId, index) {
   // The marker HubSpot puts on every property row, required as a direct child.
   // This is what a nested decoy cannot fake at the same depth. Only surfaces
   // whose row id is bare declare one: where the id carries a prefix it already
@@ -116,9 +123,14 @@ function annotateRow(row, surface, objectTypeId) {
   if (surface.rowMarker && !row.querySelector(surface.rowMarker)) return false;
 
   const source = surface.source ? row.querySelector(surface.source) : null;
+  const labelNode = surface.label ? row.querySelector(surface.label) : null;
   const read = readRowName(surface, {
-    rowValue: row.getAttribute(surface.rowAttribute),
+    rowValue: surface.rowAttribute ? row.getAttribute(surface.rowAttribute) : null,
     sourceValue: source ? source.getAttribute(surface.sourceAttribute) : null,
+    // textContent, never innerHTML or an attribute. This is the rendered label,
+    // and the only thing done with it is a lookup in a map we built ourselves.
+    labelValue: labelNode ? labelNode.textContent : null,
+    index,
   });
   if (!read.ok) return false;
 
