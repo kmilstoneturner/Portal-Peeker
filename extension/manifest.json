@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Portal Peeker",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Capture, inspect, and export the JSON behind HubSpot workflows. No telemetry, no analytics, no third-party requests.",
   "minimum_chrome_version": "111",
   "icons": {
@@ -24,22 +24,74 @@
     "service_worker": "service-worker.js",
     "type": "module"
   },
-  "permissions": [],
-  "host_permissions": ["*://*.hubspot.com/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.hubspot.com/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["*://*.hubspot.com/workflows/*"],
-      "js": ["capture/interceptor.js"],
+      "matches": [
+        "*://*.hubspot.com/workflows/*"
+      ],
+      "js": [
+        "capture/interceptor.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start",
       "all_frames": false
     },
     {
-      "matches": ["*://*.hubspot.com/workflows/*"],
-      "js": ["capture/bridge.js"],
+      "matches": [
+        "*://*.hubspot.com/workflows/*"
+      ],
+      "js": [
+        "capture/bridge.js"
+      ],
       "world": "ISOLATED",
       "run_at": "document_start",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "*://*.hubspot.com/contacts/*"
+      ],
+      "js": [
+        "overlay/property-names.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "*://*.hubspot.com/property-settings/*",
+        "*://*.hubspot.com/contacts/*"
+      ],
+      "js": [
+        "overlay/overlay.js"
+      ],
+      "css": [
+        "overlay/overlay.css"
+      ],
+      "world": "ISOLATED",
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "*://*.hubspot.com/object-builder/*"
+      ],
+      "js": [
+        "overlay/overlay.js"
+      ],
+      "css": [
+        "overlay/overlay.css"
+      ],
+      "world": "ISOLATED",
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }

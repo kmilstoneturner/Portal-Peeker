@@ -8,19 +8,107 @@
   --warn-bg: #fef8f0;
   --warn-line: #f5c26b;
   --warn-ink: #7c5601;
+  --rail: 44px;
+  --gutter: 14px;
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* The rail plus the content column the popup has always had. Widening rather
+   than squeezing means every block below keeps its exact width, so nothing on
+   the Home page reflowed when the rail arrived. */
 body {
-  width: 340px;
+  width: calc(var(--rail) + 340px);
   margin: 0;
   padding: 0;
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.shell {
+  display: flex;
+  align-items: stretch;
+  /* The popup is sized by its document, so without a floor it would collapse
+     when switching to the much shorter Settings page. */
+  min-height: 300px;
+}
+
+.rail {
+  display: flex;
+  flex: 0 0 var(--rail);
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-right: 1px solid var(--line);
+  background: #fafbfc;
+}
+
+.rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rail-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.rail-btn:hover {
+  color: var(--fg);
+}
+
+.rail-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.rail-btn[aria-selected="true"] {
+  border-left-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Lives here rather than on body, or the rail's border would stop short of
+     the bottom edge. */
+  padding-bottom: 12px;
+}
+
+.settings {
+  margin: 10px var(--gutter) 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.set-note {
+  margin: 4px 0 0 25px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.set-note + .check {
+  margin-top: 10px;
+}
+
+.set-foot {
+  margin: 10px var(--gutter) 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .head {
@@ -242,8 +330,4 @@ body {
 
 .status.error {
   color: #c0392b;
-}
-
-body {
-  padding-bottom: 12px;
 }

@@ -1,0 +1,38 @@
+/* The one thing this extension draws on a HubSpot page.
+ *
+ * Injected by the browser via manifest content_scripts.css, so it needs no
+ * web_accessible_resources and lands before the DOM builds. It is injected even
+ * when the setting is off, which costs nothing: the rule matches no element
+ * until code.pp-api-name exists.
+ *
+ * Two deliberate choices:
+ *
+ * `code.pp-api-name` rather than `.pp-api-name`, because content script styles
+ * sit ahead of the page's own sheets and an equal specificity HubSpot rule
+ * would win. One extra element in the selector settles it. There is no
+ * !important anywhere in this file and there should never be: this renders
+ * inside somebody's CRM, which is not a place to start a specificity fight.
+ *
+ * `user-select: text`, because copying that string is the entire point of the
+ * feature and data grids sometimes set user-select: none on their rows.
+ *
+ * Colours are literals. Content script CSS cannot see the popup's variables.
+ */
+
+code.pp-api-name {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #516f90;
+  word-break: break-all;
+  user-select: text;
+  cursor: text;
+
+  /* Neutralise whatever the page styles <code> with, so this inherits the
+     table's rhythm rather than a code block's. */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}

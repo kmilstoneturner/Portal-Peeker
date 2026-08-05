@@ -26,20 +26,63 @@ const OUT = join(ROOT, 'extension/dist');
 
 const CAPTURE = 'packages/capture/src';
 const CORE = 'packages/core/src';
+const OVERLAY = 'packages/overlay/src';
 const EXTENSION = 'extension/src';
 const MANIFEST = 'extension/manifest.json';
 
 // Each content-script entry, in load order. Order is the dependency order.
+//
+// capturesFetch marks the pair that wraps window.fetch. It is what the
+// document_start assertion below keys on: that timing rule protects the
+// interception race and says nothing about a script that only reads the DOM.
 const BUNDLES = [
   {
     out: 'capture/interceptor.js',
     world: 'MAIN',
+    capturesFetch: true,
     sources: [`${CAPTURE}/protocol.js`, `${CAPTURE}/endpoints.js`, `${CAPTURE}/interceptor.js`],
   },
   {
     out: 'capture/bridge.js',
     world: 'ISOLATED',
+    capturesFetch: true,
     sources: [`${CAPTURE}/protocol.js`, `${CAPTURE}/endpoints.js`, `${CAPTURE}/bridge.js`],
+  },
+  {
+    // MAIN world, document_start, and both are required. The properties
+    // response is fetched once during page load and cached, so a script that
+    // arrives at document_idle has already missed it. Measured, not assumed.
+    out: 'overlay/property-names.js',
+    world: 'MAIN',
+    capturesFetch: true,
+    sources: [
+      `${OVERLAY}/property-names-protocol.js`,
+      `${OVERLAY}/property-names-interceptor.js`,
+    ],
+  },
+  {
+    out: 'overlay/overlay.js',
+    world: 'ISOLATED',
+    capturesFetch: false,
+    sources: [
+      `${OVERLAY}/settings.js`,
+      `${OVERLAY}/settings-store.js`,
+      `${OVERLAY}/test-id.js`,
+      `${OVERLAY}/property-rows.js`,
+      `${OVERLAY}/property-names-protocol.js`,
+      `${OVERLAY}/property-names.js`,
+      `${OVERLAY}/property-names-store.js`,
+      // Ahead of record-surfaces.js, and it has to be: the SURFACES table names
+      // a PLACEMENT at module scope, and these fragments share one scope in load
+      // order. Behind it, that read hits the temporal dead zone and the overlay
+      // throws on load rather than at any point a test would reach.
+      `${OVERLAY}/api-name-node.js`,
+      `${OVERLAY}/record-surfaces.js`,
+      `${OVERLAY}/property-list.js`,
+      `${OVERLAY}/create-form.js`,
+      `${OVERLAY}/record-properties.js`,
+      `${OVERLAY}/overlay.js`,
+    ],
   },
 ];
 
@@ -50,6 +93,12 @@ const COPIES = [
   [`${EXTENSION}/popup.js`, 'popup.js'],
   [`${EXTENSION}/service-worker.js`, 'service-worker.js'],
   [`${CAPTURE}/protocol.js`, 'lib/protocol.js'],
+  // Same trick as protocol.js above: one source, copied for the popup's module
+  // loader and concatenated into the content-script bundle. That is what stops
+  // the two sides of the settings contract from drifting apart.
+  [`${OVERLAY}/settings.js`, 'lib/settings.js'],
+  [`${OVERLAY}/settings-store.js`, 'lib/settings-store.js'],
+  [`${OVERLAY}/overlay.css`, 'overlay/overlay.css'],
   [`${CORE}/summary.js`, 'lib/summary.js'],
   [`${CORE}/trim.js`, 'lib/trim.js'],
   [`${CORE}/strip-html.js`, 'lib/strip-html.js'],
@@ -155,13 +204,33 @@ if (!worlds.includes('MAIN') || !worlds.includes('ISOLATED')) {
   throw new Error('the extension needs one MAIN-world and one ISOLATED-world content script');
 }
 
+// document_start is a rule about the capture pair specifically: HubSpot's
+// bundle grabs the original fetch the moment it runs, so an interceptor that
+// loads later patches a copy nothing uses. It says nothing about a script that
+// only reads the DOM, and forcing one to document_start would just mean running
+// before there is a body to read. Every entry must still state run_at, though:
+// an implicit default is how a script quietly changes its own timing.
+const RUN_AT = new Set(['document_start', 'document_end', 'document_idle']);
+const CAPTURE_BUNDLES = new Set(BUNDLES.filter((b) => b.capturesFetch).map((b) => b.out));
+
 for (const cs of manifest.content_scripts) {
-  if (cs.run_at !== 'document_start') {
+  if (!RUN_AT.has(cs.run_at)) {
+    throw new Error(`content script ${cs.js.join(', ')} must state run_at explicitly`);
+  }
+  // Same reasoning as run_at, and learned the same way. HubSpot renders the
+  // create-record dialog inside an iframe (nav-object-create-ui), so a script
+  // that does not say all_frames simply never sees it, and nothing anywhere
+  // reports that: the feature is just absent. An entry that states false is
+  // making a choice; an entry that omits it is inheriting one.
+  if (typeof cs.all_frames !== 'boolean') {
+    throw new Error(`content script ${cs.js.join(', ')} must state all_frames explicitly`);
+  }
+  if (cs.js.some((file) => CAPTURE_BUNDLES.has(file)) && cs.run_at !== 'document_start') {
     throw new Error(
-      'content scripts must run at document_start, or HubSpot captures the original fetch first',
+      'the capture content scripts must run at document_start, or HubSpot captures the original fetch first',
     );
   }
-  for (const file of cs.js) {
+  for (const file of [...cs.js, ...(cs.css || [])]) {
     if (!existsSync(join(OUT, file))) throw new Error(`manifest references a missing file: ${file}`);
   }
 }
@@ -175,9 +244,13 @@ for (const cs of manifest.content_scripts) {
 const stripComments = (source) =>
   source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-const mainBundle = stripComments(readFileSync(join(OUT, 'capture/interceptor.js'), 'utf8'));
-if (/\bchrome\./.test(mainBundle)) {
-  throw new Error('MAIN-world bundle references chrome.*; it runs in the page world and has none');
+for (const bundle of BUNDLES.filter((b) => b.world === 'MAIN')) {
+  const source = stripComments(readFileSync(join(OUT, bundle.out), 'utf8'));
+  if (/\bchrome\./.test(source)) {
+    throw new Error(
+      `${bundle.out} references chrome.*; it runs in the page world and has none`,
+    );
+  }
 }
 
 console.log(`built ${OUT}`);

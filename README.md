@@ -13,6 +13,13 @@ the flow from HubSpot's own API, on a click, and nothing else it does leaves you
 in `chrome://extensions`. CI fails the build on any absolute URL to a non-HubSpot host in
 the bundle.
 
+`permissions` is `["storage"]` and nothing else. It holds the state of the Settings page
+checkboxes, in `chrome.storage.local`, so they stay on this machine: never
+`chrome.storage.sync`, which would put them on Google's servers. Chrome shows no warning for
+`storage` because it grants no access to your data. Nothing about a capture goes in it, and
+the build fails if either capture script, or the record-page property reader, so much as
+mentions `chrome.storage`.
+
 ## What v1 does
 
 - Captures the response of `GET /api/automationplatform/v1/hybrid/{flowId}` on editor load.
@@ -33,8 +40,76 @@ the bundle.
 - **Refresh** refetches saved state from HubSpot, from the content script so cookies ride
   along. A failed refresh never overwrites the capture you already have.
 
-Not in v1: JSON preview, options page, diffing, snapshot history, copilot capture,
-validation errors, and any write capability whatsoever.
+Not in v1: JSON preview, diffing, snapshot history, copilot capture, validation errors, and
+any write capability whatsoever.
+
+## What v1.2 adds
+
+A left icon rail in the popup with two pages, Home and Settings, and the first thing on the
+Settings page.
+
+**Show internal API names.** On HubSpot's property settings page, each property's internal
+name appears in monospace under its label, above the field type:
+
+```
+Annual Revenue
+annualrevenue
+Single-line text
+```
+
+On a record page the same name appears under each field's label:
+
+```
+Lead Status
+hs_lead_status
+--
+```
+
+Three places there: the **Key information** card in the left sidebar, the **View all properties**
+panel including every property group in it, and the **highlights strip** at the top of the
+record.
+
+The **create record dialog** gets the same treatment, for every object including custom ones,
+under each field's label as you fill the form in.
+
+On those, the name is already on the page. HubSpot writes it into the page's own HTML
+attributes and simply does not display it, so this reads what is in front of you and makes it
+legible. It is display only, it is undone the moment you untick the box, and it is off until
+you turn it on.
+
+**Portal Peeker still makes no request of its own.** Where a name is not in the page at all,
+it reads a reply HubSpot's page already received. See below, and PRIVACY.md.
+
+The honest limit: this reads an internal HubSpot UI with no version and no stability promise.
+The name has to identify itself before it is shown, so when HubSpot changes its markup **the
+annotation disappears rather than showing you the wrong name**. Anything it cannot read with
+confidence is skipped and the rest of the page is still annotated.
+
+That rule costs coverage, deliberately. One family of surfaces earns its names a
+different way, and two gaps are permanent.
+
+**Contact profile, Data highlights, and Property history work differently.** HubSpot puts no
+internal name in the page for those, only the label. So the label is matched against your
+portal's property list, which HubSpot's own page already fetched while loading. The extension
+reads that reply rather than asking for it, and only if you have the setting switched on.
+
+A label matching no property, or matching two, leaves the row unannotated. That is the same
+rule as everywhere else here: a blank is fine, a wrong name is not.
+
+Property history is where you will notice that most, and it is working as intended. Many
+portals have two properties both labelled "Last Modified Date", so every row showing one of
+them is ambiguous and gets no name. A history that is annotated in patches is the rule doing
+its job, not the feature failing.
+
+The two permanent gaps: **association cards are skipped**, because the properties they show
+belong to the associated record rather than the one you are looking at.
+
+And **the contact owner field is skipped** in the Key information card. Its control renders
+differently from every other field there and carries the name only once, and one unconfirmed
+copy is not enough on a surface where the surrounding markup would let a wrong guess through.
+
+Settings are stored in `chrome.storage.local`, which is the one permission the extension asks
+for. See the privacy note above.
 
 ## Trimming
 
@@ -171,8 +246,8 @@ Requires Node 20 or newer.
 npm install && npm run verify
 ```
 
-That builds `extension/dist`, runs both safety checks against it (no network calls, no real
-portal data), and runs the tests. Then:
+That builds `extension/dist`, runs the safety checks against it (no network calls, no real
+portal data, permissions pinned, settings declared), and runs the tests. Then:
 
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
@@ -183,11 +258,34 @@ Open a HubSpot workflow. A check mark appears on the extension icon once somethi
 captured. Note that the extension only sees requests made after it loads, so a tab that was
 already open when you installed needs a reload.
 
+### After rebuilding, reload two things
+
+This catches people out, because the symptom looks like a bug in whatever you just changed.
+
+Chrome serves `popup.html`, `popup.js`, and `popup.css` **fresh from disk every time the
+popup opens**, but it parses `manifest.json` **only when the extension is loaded**. So after
+a rebuild that touched the manifest you can be looking at a brand new popup running under the
+old manifest: a permission it needs is missing, and a content script it declares was never
+registered. Settings appear not to persist and page annotations never show up, neither of
+which is what is actually wrong.
+
+So, in order:
+
+1. Hit the reload arrow on the Portal Peeker card in `chrome://extensions`.
+2. Reload the HubSpot tab. Reloading the extension does not re-inject content scripts into
+   tabs that are already open.
+
+To tell which manifest is actually running, right-click the popup, choose **Inspect**, and
+run `chrome.runtime.getManifest().version` in its console. If that does not match
+`extension/manifest.json`, step 1 has not happened yet.
+
 ## Repo layout
 
 ```
 packages/core/          summary, trim, html strip, numbers, AI context, span scan. pure.
 packages/capture/       MAIN-world interceptor + isolated-world bridge. shared.
+packages/overlay/       settings table, annotations drawn on HubSpot's own pages, and
+                        the MAIN-world reader for the one response they need.
 extension/              manifest, popup. hubspot.com only. no network.
 tools/                  build, icon generation, the CI safety checks.
 ```
@@ -208,16 +306,25 @@ failure, not a warning.
 
 ## The two JS worlds
 
+Two pairs of scripts live across this boundary, for the same reason.
+
 `packages/capture/src/interceptor.js` runs in the **MAIN** world at `document_start`. It has
 to. A normal content script gets an isolated world with its own `window`, so patching
 `window.fetch` there patches a copy nothing calls. `document_start` matters just as much,
 because HubSpot's bundle captures a reference to the original `fetch` while it initialises.
 
-MAIN-world scripts have no access to `chrome.*` at all, so the interceptor's only exit is
-`window.postMessage` to `bridge.js`, which runs in the isolated world and holds the
-snapshot. The build asserts that the MAIN bundle contains no `chrome.` reference in code.
+`packages/overlay/src/property-names-interceptor.js` is the second, on record pages. Same
+world, same timing, and the timing was measured rather than assumed: the response it reads is
+fetched once during page load and cached, so a script arriving at `document_idle` has already
+missed it.
 
-These two files cannot be merged.
+MAIN-world scripts have no access to `chrome.*` at all, so each interceptor's only exit is
+`window.postMessage` to its isolated-world partner: `bridge.js`, which holds the snapshot, and
+`property-names-store.js`, which holds the label index. They use separate channels, so neither
+side has to ignore the other's traffic. The build asserts that no MAIN bundle contains a
+`chrome.` reference in code.
+
+Neither pair can be merged.
 
 ## Fixtures and portal data
 
@@ -245,8 +352,15 @@ pointing at documents.
 ## Known limits in v1
 
 - Endpoint patterns live in `packages/capture/src/endpoints.js` and are not yet
-  user-overridable. These are internal APIs and they will change without notice. The options
-  page that makes them overridable is v2.
+  user-overridable. These are internal APIs and they will change without notice. There is a
+  Settings page as of v1.2, so they now have somewhere to go; making them overridable there
+  is still v2.
+- The API name annotation reads HubSpot's own markup, which carries no stability promise. If
+  HubSpot changes it the names stop appearing. That is the intended failure: the annotation
+  is withdrawn rather than guessed at. On the record-page surfaces that put no name in the
+  markup at all (two sidebar cards and the Property history window), it reads the property
+  lists HubSpot's page already fetched, and the same posture applies: a label matching no
+  property, or two, leaves the row blank.
 - No dirty detection. The popup shows a capture timestamp and a Refresh button and claims
   nothing about currency. The only candidate signal (`allOutputs`) has untested coverage,
   and a dirty flag with holes is worse than none.

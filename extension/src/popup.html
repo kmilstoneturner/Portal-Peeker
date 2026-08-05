@@ -6,92 +6,158 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <header class="head">
-      <h1>Portal Peeker</h1>
-      <span class="kind" id="kind" hidden></span>
-    </header>
+    <div class="shell">
+      <!--
+        Two pages in one document. A second document would mean a second header,
+        a second stylesheet load, and a visible flash on every switch in a 384px
+        window, and popup.js resolves every element by id at load.
+      -->
+      <nav class="rail" role="tablist" aria-orientation="vertical" aria-label="Sections">
+        <button
+          type="button"
+          class="rail-btn"
+          id="nav-home"
+          role="tab"
+          aria-selected="true"
+          aria-controls="page-home"
+          aria-label="Home"
+          title="Home"
+          tabindex="0"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true" focusable="false">
+            <path d="M2.5 6.8 8 2.5l5.5 4.3V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5z" />
+            <path d="M6.5 13.5V9h3v4.5" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="rail-btn"
+          id="nav-settings"
+          role="tab"
+          aria-selected="false"
+          aria-controls="page-settings"
+          aria-label="Settings"
+          title="Settings"
+          tabindex="-1"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false">
+            <path d="M2 4.5h4M9.5 4.5H14M2 11.5h5.5M11 11.5H14" />
+            <circle cx="7.75" cy="4.5" r="1.75" />
+            <circle cx="9.25" cy="11.5" r="1.75" />
+          </svg>
+        </button>
+      </nav>
 
-    <section id="empty" class="empty" hidden>
-      <p class="empty-title">Open a HubSpot workflow to capture it.</p>
-      <p class="empty-hint" id="empty-hint">
-        Already on one? Reload the page. Portal Peeker only sees requests made after it loads.
-      </p>
-    </section>
+      <div class="pane">
+        <header class="head">
+          <h1>Portal Peeker</h1>
+          <span class="kind" id="kind" hidden></span>
+        </header>
 
-    <section id="capture" hidden>
-      <dl class="rows">
-        <div class="row"><dt>Flow</dt><dd id="f-name">not found</dd></div>
-        <div class="row"><dt>Flow ID</dt><dd id="f-flow" class="mono">not found</dd></div>
-        <div class="row"><dt>Portal ID</dt><dd id="f-portal" class="mono">not found</dd></div>
-        <div class="row"><dt>Version</dt><dd id="f-version" class="mono">not found</dd></div>
-        <div class="row"><dt>Captured</dt><dd id="f-when">not found</dd></div>
-        <div class="row"><dt>Size</dt><dd id="f-size" class="mono">not found</dd></div>
-        <div class="row"><dt>Est. Tokens</dt><dd id="f-tokens" class="mono">not found</dd></div>
-      </dl>
+        <div class="page" id="page-home" role="tabpanel" aria-labelledby="nav-home">
+          <section id="empty" class="empty" hidden>
+            <p class="empty-title">Open a HubSpot workflow to capture it.</p>
+            <p class="empty-hint" id="empty-hint">
+              Already on one? Reload the page. Portal Peeker only sees requests made after it loads.
+            </p>
+          </section>
 
-      <p class="note" id="degraded" hidden></p>
+          <section id="capture" hidden>
+            <dl class="rows">
+              <div class="row"><dt>Flow</dt><dd id="f-name">not found</dd></div>
+              <div class="row"><dt>Flow ID</dt><dd id="f-flow" class="mono">not found</dd></div>
+              <div class="row"><dt>Portal ID</dt><dd id="f-portal" class="mono">not found</dd></div>
+              <div class="row"><dt>Version</dt><dd id="f-version" class="mono">not found</dd></div>
+              <div class="row"><dt>Captured</dt><dd id="f-when">not found</dd></div>
+              <div class="row"><dt>Size</dt><dd id="f-size" class="mono">not found</dd></div>
+              <div class="row"><dt>Est. Tokens</dt><dd id="f-tokens" class="mono">not found</dd></div>
+            </dl>
 
-      <div class="options">
-        <label class="check" for="opt-trim">
-          <input type="checkbox" id="opt-trim" />
-          <span id="opt-trim-label">Trim to workflow logic</span>
-        </label>
-        <label class="check sub" for="opt-strip">
-          <input type="checkbox" id="opt-strip" />
-          <span>Strip HTML from email bodies</span>
-        </label>
-        <label class="check" for="opt-numbers">
-          <input type="checkbox" id="opt-numbers" checked />
-          <span>Add editor numbers</span>
-          <button
-            type="button"
-            class="info"
-            id="numbers-info"
-            aria-expanded="false"
-            aria-controls="numbers-tip"
-            aria-label="About editor numbers"
-          >
-            i
-          </button>
-        </label>
-        <p class="tip" id="numbers-tip" hidden>
-          The numbers on each card in the editor (1, 2, 3...) are not in the
-          JSON HubSpot sends. This adds each card's number as a uiNumber field,
-          so an AI or a teammate can say "action 12" and mean the card you see
-          on screen. Numbers shift when actions are added, moved, or removed:
-          they are valid for this capture only. actionId is the stable handle.
-        </p>
-        <label class="check" for="opt-context">
-          <input type="checkbox" id="opt-context" checked />
-          <span>Add AI context</span>
-          <button
-            type="button"
-            class="info"
-            id="context-info"
-            aria-expanded="false"
-            aria-controls="context-tip"
-            aria-label="About AI context"
-          >
-            i
-          </button>
-        </label>
-        <p class="tip" id="context-tip" hidden>
-          Inserts an _aiContext block as the first key of the export: what this
-          file is, when it was captured, and how to name actions (uiNumber for
-          the card on the canvas, actionId as the stable handle). Still valid
-          JSON, and it works with trimming on or off. Delete that one key and
-          the remaining bytes are exactly the export without it.
-        </p>
+            <p class="note" id="degraded" hidden></p>
+
+            <!--
+              These four are export options. Their ids carry the opt- prefix,
+              which tools/check-ai-context.mjs counts against the MODIFICATIONS
+              table in packages/core/src/ai-context.js. A checkbox added here
+              that does not change an export must NOT use that prefix: settings
+              live on the Settings page, are declared in
+              packages/overlay/src/settings.js, and are rendered from there with
+              set- ids.
+            -->
+            <div class="options">
+              <label class="check" for="opt-trim">
+                <input type="checkbox" id="opt-trim" />
+                <span id="opt-trim-label">Trim to workflow logic</span>
+              </label>
+              <label class="check sub" for="opt-strip">
+                <input type="checkbox" id="opt-strip" />
+                <span>Strip HTML from email bodies</span>
+              </label>
+              <label class="check" for="opt-numbers">
+                <input type="checkbox" id="opt-numbers" checked />
+                <span>Add editor numbers</span>
+                <button
+                  type="button"
+                  class="info"
+                  id="numbers-info"
+                  aria-expanded="false"
+                  aria-controls="numbers-tip"
+                  aria-label="About editor numbers"
+                >
+                  i
+                </button>
+              </label>
+              <p class="tip" id="numbers-tip" hidden>
+                The numbers on each card in the editor (1, 2, 3...) are not in the
+                JSON HubSpot sends. This adds each card's number as a uiNumber field,
+                so an AI or a teammate can say "action 12" and mean the card you see
+                on screen. Numbers shift when actions are added, moved, or removed:
+                they are valid for this capture only. actionId is the stable handle.
+              </p>
+              <label class="check" for="opt-context">
+                <input type="checkbox" id="opt-context" checked />
+                <span>Add AI context</span>
+                <button
+                  type="button"
+                  class="info"
+                  id="context-info"
+                  aria-expanded="false"
+                  aria-controls="context-tip"
+                  aria-label="About AI context"
+                >
+                  i
+                </button>
+              </label>
+              <p class="tip" id="context-tip" hidden>
+                Inserts an _aiContext block as the first key of the export: what this
+                file is, when it was captured, and how to name actions (uiNumber for
+                the card on the canvas, actionId as the stable handle). Still valid
+                JSON, and it works with trimming on or off. Delete that one key and
+                the remaining bytes are exactly the export without it.
+              </p>
+            </div>
+
+            <div class="actions">
+              <button id="copy" type="button" class="btn primary">Copy</button>
+              <button id="download" type="button" class="btn">Download</button>
+              <button id="refresh" type="button" class="btn">Refresh</button>
+            </div>
+
+            <p class="status" id="status" role="status" aria-live="polite"></p>
+          </section>
+        </div>
+
+        <!--
+          Built by renderSettings() in popup.js from the table in
+          packages/overlay/src/settings.js, so adding a setting is one entry
+          there and nothing here.
+        -->
+        <div class="page" id="page-settings" role="tabpanel" aria-labelledby="nav-settings" hidden>
+          <div class="settings" id="settings-list"></div>
+          <p class="set-foot" id="set-foot"></p>
+        </div>
       </div>
-
-      <div class="actions">
-        <button id="copy" type="button" class="btn primary">Copy</button>
-        <button id="download" type="button" class="btn">Download</button>
-        <button id="refresh" type="button" class="btn">Refresh</button>
-      </div>
-
-      <p class="status" id="status" role="status" aria-live="polite"></p>
-    </section>
+    </div>
 
     <script type="module" src="popup.js"></script>
   </body>

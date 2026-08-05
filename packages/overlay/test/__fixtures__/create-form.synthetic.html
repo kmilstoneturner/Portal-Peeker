@@ -1,0 +1,120 @@
+<!--
+  The create-record dialog. Hand authored, like every other fixture here, and
+  never a saved copy of a real one: a real portal's form carries its portal id in
+  the editor link and its own custom property names.
+
+  Every class attribute is dropped. Nothing in this package selects on a class,
+  and a fixture carrying them would let someone start. The presentation wrappers
+  HubSpot puts between the label and the control are collapsed, because no rule
+  reads them and depth there changes no behaviour.
+
+  Pair this with a path that is NOT a record page. That is the point of the
+  surface: this dialog opens over an index, a board, or another object's record,
+  so it cannot be gated the way record-surfaces.js is.
+-->
+
+<!--
+  Page furniture, outside the dialog. The nav carries well-formed property names
+  as test ids and a stray FormControl sits loose on the page. Container scoping
+  is the only thing that excludes either.
+-->
+<nav>
+  <a data-test-id="deals">Deals</a>
+  <a data-test-id="companies">Companies</a>
+</nav>
+<div data-test-id="FormControl">
+  <label id="FormControl-property-input-input-99" for="input-99">Loose Field</label>
+  <span data-test-id="hover-content-wrapper"></span>
+  <textarea data-test-id="outside-input" data-selenium-test="property-input-outside_dialog" id="input-99"></textarea>
+</div>
+
+<div data-selenium-test="creator">
+  <!--
+    The only thing in the dialog that names the object being created. Read for
+    the data-pp-object-type attribute and nothing else, which is why the surface
+    still works when an admin-only link is missing for a non-admin user.
+
+    The portal segment is 1 here. It is a real portal id on a live form, and this
+    repo is public.
+  -->
+  <a data-selenium-test="creator-editor-link" href="/object-manager-settings/1/creator-editor/0-2" target="_blank">Edit this form</a>
+
+  <fieldset>
+    <!--
+      The happy path, on a textarea. Note the label id: it CONTAINS
+      property-input- and is not a name, its tail is the DOM id of the input.
+      afterPrefix refuses it for free by requiring the value to start with the
+      prefix. Every row below carries one, because every live row does.
+    -->
+    <div data-test-id="FormControl">
+      <label id="FormControl-property-input-input-40" for="input-40">Company domain name</label>
+      <span data-test-id="hover-content-wrapper"></span>
+      <textarea data-test-id="domain-input" data-selenium-test="property-input-domain" id="input-40" aria-labelledby="FormControl-property-input-input-40"></textarea>
+    </div>
+
+    <!--
+      The prefix trap. This name arrives as property-input-label-foo, which a
+      regex replace or a split on '-' would mangle. It is why test-id.js strips
+      prefixes by length.
+    -->
+    <div data-test-id="FormControl">
+      <label id="FormControl-property-input-input-41" for="input-41">Label Foo</label>
+      <span data-test-id="hover-content-wrapper"></span>
+      <textarea data-test-id="label-foo-input" data-selenium-test="property-input-label-foo" id="input-41"></textarea>
+    </div>
+
+    <!--
+      A dropdown. The control is a <button> rather than a textarea, and it nests
+      a dropdown caret and a typeahead item inside itself. Matched on the
+      attribute alone, never on tag or position, exactly as on the record page.
+    -->
+    <div data-test-id="FormControl">
+      <label id="FormControl-property-input-input-42" for="input-42">Company owner</label>
+      <span data-test-id="hover-content-wrapper"></span>
+      <div>
+        <button type="button" id="input-42" data-dropdown="true" data-test-id="hubspot_owner_id-input" data-selenium-test="property-input-hubspot_owner_id">
+          <span><span data-option-value="1" role="option" data-typeahead-item="true"><span data-option-text="true">Sample Person</span></span></span>
+          <span data-test-id="dropdown-caret"></span>
+        </button>
+      </div>
+    </div>
+
+    <!--
+      Disabled, which is how the whole secondary fieldset renders until a name is
+      typed. It carries both the source and the anchor like any other field, so
+      it must annotate. Pinned because "disabled fields are different" is the
+      obvious wrong guess, and the live form spends its first seconds this way.
+    -->
+    <div data-test-id="FormControl">
+      <label id="FormControl-property-input-input-43" for="input-43">City</label>
+      <span data-test-id="hover-content-wrapper"></span>
+      <textarea disabled="" data-test-id="city-input" data-selenium-test="property-input-city" id="input-43"></textarea>
+    </div>
+
+    <!--
+      Two prefixed controls in one field. Nobody has seen this shape here, and it
+      is not impossible: the All properties panel renders exactly it, with
+      property-input-phone-button nested inside the fax row. Taking the first
+      would be a guess, so the field is declined and its neighbours are not.
+    -->
+    <div data-test-id="FormControl">
+      <label id="FormControl-property-input-input-44" for="input-44">Ambiguous</label>
+      <span data-test-id="hover-content-wrapper"></span>
+      <textarea data-test-id="fax-input" data-selenium-test="property-input-fax" id="input-44" data-nested="outer"></textarea>
+      <button type="button" data-selenium-test="property-input-phone-button"></button>
+    </div>
+
+    <!-- No source at all. Something that is not a property field is in the form. -->
+    <div data-test-id="FormControl">
+      <label id="FormControl-property-input-input-45" for="input-45">No Source</label>
+      <span data-test-id="hover-content-wrapper"></span>
+      <textarea data-test-id="no-source-input" id="input-45"></textarea>
+    </div>
+
+    <!-- Readable, but with nowhere to put the name. -->
+    <div data-test-id="FormControl">
+      <label id="FormControl-property-input-input-46" for="input-46">No Anchor</label>
+      <textarea data-test-id="no_anchor-input" data-selenium-test="property-input-no_anchor" id="input-46"></textarea>
+    </div>
+  </fieldset>
+</div>
