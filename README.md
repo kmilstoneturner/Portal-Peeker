@@ -275,7 +275,8 @@ run `chrome.runtime.getManifest().version` in its console. If that does not matc
 ```
 packages/core/          summary, trim, html strip, numbers, AI context, span scan. pure.
 packages/capture/       MAIN-world interceptor + isolated-world bridge. shared.
-packages/overlay/       settings table, and annotations drawn on HubSpot's own pages.
+packages/overlay/       settings table, annotations drawn on HubSpot's own pages, and
+                        the MAIN-world reader for the one response they need.
 extension/              manifest, popup. hubspot.com only. no network.
 tools/                  build, icon generation, the CI safety checks.
 ```
@@ -296,16 +297,25 @@ failure, not a warning.
 
 ## The two JS worlds
 
+Two pairs of scripts live across this boundary, for the same reason.
+
 `packages/capture/src/interceptor.js` runs in the **MAIN** world at `document_start`. It has
 to. A normal content script gets an isolated world with its own `window`, so patching
 `window.fetch` there patches a copy nothing calls. `document_start` matters just as much,
 because HubSpot's bundle captures a reference to the original `fetch` while it initialises.
 
-MAIN-world scripts have no access to `chrome.*` at all, so the interceptor's only exit is
-`window.postMessage` to `bridge.js`, which runs in the isolated world and holds the
-snapshot. The build asserts that the MAIN bundle contains no `chrome.` reference in code.
+`packages/overlay/src/property-names-interceptor.js` is the second, on record pages. Same
+world, same timing, and the timing was measured rather than assumed: the response it reads is
+fetched once during page load and cached, so a script arriving at `document_idle` has already
+missed it.
 
-These two files cannot be merged.
+MAIN-world scripts have no access to `chrome.*` at all, so each interceptor's only exit is
+`window.postMessage` to its isolated-world partner: `bridge.js`, which holds the snapshot, and
+`property-names-store.js`, which holds the label index. They use separate channels, so neither
+side has to ignore the other's traffic. The build asserts that no MAIN bundle contains a
+`chrome.` reference in code.
+
+Neither pair can be merged.
 
 ## Fixtures and portal data
 
@@ -338,7 +348,9 @@ pointing at documents.
   is still v2.
 - The API name annotation reads HubSpot's own markup, which carries no stability promise. If
   HubSpot changes it the names stop appearing. That is the intended failure: the annotation
-  is withdrawn rather than guessed at.
+  is withdrawn rather than guessed at. On the two record-page cards that put no name in the
+  markup at all, it reads the property list HubSpot's page already fetched, and the same
+  posture applies: a label matching no property, or two, leaves the row blank.
 - No dirty detection. The popup shows a capture timestamp and a Refresh button and claims
   nothing about currency. The only candidate signal (`allOutputs`) has untested coverage,
   and a dirty flag with holes is worse than none.

@@ -72,6 +72,10 @@ In the memory of the content script running in that one browser tab, and nowhere
 - Reloading the page or closing the tab discards it. There is no history and no way to
   recover a previous capture.
 
+The same is true of the property list described above, on record pages. It is held in the
+memory of that one tab, is never written to `chrome.storage` or to disk, and goes when the
+tab does. The build greps that script for `chrome.storage` alongside the two capture scripts.
+
 The only thing Portal Peeker stores between sessions is the state of its checkboxes: the four
 export options, kept in the popup's own `localStorage`, and the Settings page toggles, kept in
 `chrome.storage.local`. That is a handful of true/false values. It contains nothing about any
@@ -130,10 +134,10 @@ If you turn on **Show internal API names**, then on `*://*.hubspot.com/property-
 and on CRM record pages under `*://*.hubspot.com/contacts/*`, Portal Peeker adds each
 property's internal name underneath its label.
 
-For most of them the name is already on the page: HubSpot renders it into the page's own HTML
-attributes, and the extension reads what is in front of you and displays it more legibly.
-**No request is made in either case**, and nothing is stored or transmitted. The only thing
-saved anywhere is whether the checkbox is ticked.
+**Portal Peeker makes no request of its own on either page.** For most properties the name is
+already on the page: HubSpot renders it into the page's own HTML attributes, and the extension
+reads what is in front of you and displays it more legibly. Nothing is stored or transmitted,
+and the only thing saved anywhere is whether the checkbox is ticked.
 
 Two cards on a record page, "Contact profile" and "Data highlights", show a property's label
 and put its internal name nowhere in the page. For those, and only when this setting is on,
