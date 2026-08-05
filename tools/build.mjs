@@ -72,9 +72,14 @@ const BUNDLES = [
       `${OVERLAY}/property-names-protocol.js`,
       `${OVERLAY}/property-names.js`,
       `${OVERLAY}/property-names-store.js`,
-      `${OVERLAY}/record-surfaces.js`,
+      // Ahead of record-surfaces.js, and it has to be: the SURFACES table names
+      // a PLACEMENT at module scope, and these fragments share one scope in load
+      // order. Behind it, that read hits the temporal dead zone and the overlay
+      // throws on load rather than at any point a test would reach.
       `${OVERLAY}/api-name-node.js`,
+      `${OVERLAY}/record-surfaces.js`,
       `${OVERLAY}/property-list.js`,
+      `${OVERLAY}/create-form.js`,
       `${OVERLAY}/record-properties.js`,
       `${OVERLAY}/overlay.js`,
     ],
@@ -211,6 +216,14 @@ const CAPTURE_BUNDLES = new Set(BUNDLES.filter((b) => b.capturesFetch).map((b) =
 for (const cs of manifest.content_scripts) {
   if (!RUN_AT.has(cs.run_at)) {
     throw new Error(`content script ${cs.js.join(', ')} must state run_at explicitly`);
+  }
+  // Same reasoning as run_at, and learned the same way. HubSpot renders the
+  // create-record dialog inside an iframe (nav-object-create-ui), so a script
+  // that does not say all_frames simply never sees it, and nothing anywhere
+  // reports that: the feature is just absent. An entry that states false is
+  // making a choice; an entry that omits it is inheriting one.
+  if (typeof cs.all_frames !== 'boolean') {
+    throw new Error(`content script ${cs.js.join(', ')} must state all_frames explicitly`);
   }
   if (cs.js.some((file) => CAPTURE_BUNDLES.has(file)) && cs.run_at !== 'document_start') {
     throw new Error(

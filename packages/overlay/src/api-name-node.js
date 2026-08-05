@@ -20,6 +20,29 @@
 const API_NAME_CLASS = 'pp-api-name';
 const OBJECT_TYPE_ATTRIBUTE = 'data-pp-object-type';
 
+/**
+ * Where a surface's name node goes, relative to its anchor.
+ *
+ * BEFORE is every surface with an element to sit ahead of: the name lands as a
+ * sibling in the anchor's parent. INSIDE appends to the anchor itself, for a
+ * cell whose only child is a bare text node and so offers nothing to insert
+ * ahead of.
+ *
+ * The two are not equally invisible to React, and the difference is worth
+ * writing down rather than discovering. A sibling is genuinely invisible:
+ * React removes children by direct reference, so one it never rendered is in no
+ * fiber's child list. Appending into a host node whose sole child is text is
+ * not, because React updates that case by assigning textContent, which takes
+ * our node with it. That is a node that vanishes and is replaced on the next
+ * pass, never a reconciler that desyncs. Both stay additive only: nothing
+ * HubSpot rendered is removed, moved, or rewritten either way, which is the
+ * rule that actually matters.
+ */
+export const PLACEMENT = {
+  BEFORE: 'before',
+  INSIDE: 'inside',
+};
+
 /** Every node this extension has drawn, anywhere under root. */
 export const API_NAME_SELECTOR = `code.${API_NAME_CLASS}`;
 
@@ -42,12 +65,19 @@ export function isApiNameNode(node) {
  * @returns {boolean} true only when a node was inserted, which is what the
  *   host's cycle breaker counts. A correction is not an insertion.
  */
-export function placeApiName(anchor, propertyName, objectTypeId) {
-  if (!anchor || !anchor.parentNode) return false;
+export function placeApiName(anchor, propertyName, objectTypeId, placement = PLACEMENT.BEFORE) {
+  if (!anchor) return false;
 
-  const existing = isApiNameNode(anchor.previousElementSibling)
-    ? anchor.previousElementSibling
-    : null;
+  // One shape, two placements. insertBefore(node, null) is appendChild, so all
+  // that varies is which node is the parent and which neighbour counts as the
+  // name already written.
+  const inside = placement === PLACEMENT.INSIDE;
+  const parent = inside ? anchor : anchor.parentNode;
+  if (!parent) return false;
+  const reference = inside ? null : anchor;
+  const neighbour = inside ? anchor.lastElementChild : anchor.previousElementSibling;
+
+  const existing = isApiNameNode(neighbour) ? neighbour : null;
 
   // Anything else of ours in this parent is an orphan, and leaving it produces
   // the same name printed twice. Observed live on the highlights strip: React
@@ -61,12 +91,13 @@ export function placeApiName(anchor, propertyName, objectTypeId) {
   // node anywhere; this only tidies the one parent it is about to write to.
   //
   // It assumes one anchor per parent, which holds on every surface today and is
-  // asserted by a test rather than believed.
-  sweepStrays(anchor.parentNode, existing);
+  // asserted by a test rather than believed. Under INSIDE the parent IS the
+  // anchor, so there is exactly one by construction.
+  sweepStrays(parent, existing);
 
   if (existing) {
     if (existing.textContent !== propertyName) existing.textContent = propertyName;
-    if (existing.getAttribute(OBJECT_TYPE_ATTRIBUTE) !== objectTypeId) {
+    if (objectTypeId && existing.getAttribute(OBJECT_TYPE_ATTRIBUTE) !== objectTypeId) {
       existing.setAttribute(OBJECT_TYPE_ATTRIBUTE, objectTypeId);
     }
     return false;
@@ -78,10 +109,31 @@ export function placeApiName(anchor, propertyName, objectTypeId) {
   // code has no business assembling markup from it.
   node.textContent = propertyName;
   // Carried for the record-page surface and for debugging. Nothing renders it.
-  node.setAttribute(OBJECT_TYPE_ATTRIBUTE, objectTypeId);
+  //
+  // Written only when there is one. On the create dialog the object type comes
+  // from an admin-only link and is legitimately absent, and an absent fact has
+  // to be an absent attribute: setAttribute would stringify it and put the word
+  // "null" on the page, which is a claim rather than a gap.
+  if (objectTypeId) node.setAttribute(OBJECT_TYPE_ATTRIBUTE, objectTypeId);
 
-  anchor.parentNode.insertBefore(node, anchor);
+  parent.insertBefore(node, reference);
   return true;
+}
+
+/**
+ * The node currently serving an anchor, or null.
+ *
+ * The same neighbour rule placeApiName applies, exported so a caller can learn
+ * WHICH node now stands for a row it just processed. record-properties.js needs
+ * that to end each container pass with only the nodes the pass vouched for:
+ * placeApiName's own sweep reaches one parent, and a node stranded elsewhere by
+ * a React re-parent is invisible to it.
+ */
+export function apiNameNodeFor(anchor, placement = PLACEMENT.BEFORE) {
+  if (!anchor) return null;
+  const neighbour =
+    placement === PLACEMENT.INSIDE ? anchor.lastElementChild : anchor.previousElementSibling;
+  return isApiNameNode(neighbour) ? neighbour : null;
 }
 
 /**

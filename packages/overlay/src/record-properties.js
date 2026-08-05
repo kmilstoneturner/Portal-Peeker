@@ -14,7 +14,30 @@
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
 import { SURFACES, parseRecordPath, readRowName } from './record-surfaces.js';
 import { propertyNameIndex } from './property-names-store.js';
-import { placeApiName, removeApiNames } from './api-name-node.js';
+import { API_NAME_SELECTOR, apiNameNodeFor, isApiNameNode, placeApiName, removeApiNames } from './api-name-node.js';
+
+/**
+ * The text a node renders, minus anything this extension drew inside it.
+ *
+ * textContent is right everywhere the annotation sits BESIDE the label, which
+ * is every surface but one. On Property history it lands inside the label cell,
+ * and there textContent would read "Create Date" back as "Create Datecreatedate"
+ * on the second pass: the lookup then resolves nothing, the row skips, and the
+ * name already written stands with nothing left able to correct it. A row React
+ * later reuses for a different property would keep it, which is a confidently
+ * wrong name, arrived at by the one route the rule does not otherwise cover.
+ *
+ * Direct children only. Nothing is ever placed deeper than one level inside a
+ * label, and a full tree walk would be answering a question nobody has asked.
+ */
+function labelText(node) {
+  let text = '';
+  for (const child of node.childNodes) {
+    if (isApiNameNode(child)) continue;
+    text += child.textContent;
+  }
+  return text;
+}
 
 /** The path of the document being annotated, or '' where there is none. */
 function pathOf(root) {
@@ -79,6 +102,22 @@ export function annotateRecordProperties(root) {
     for (const container of root.querySelectorAll(surface.container)) {
       result.cards += 1;
 
+      // Every node this pass placed or confirmed in this container. Whatever is
+      // not in here when the container is done is stale and comes out below.
+      const kept = new Set();
+
+      // Only where there is no anchor. An anchorless surface has nothing that
+      // filters a second element carrying the same name, and the highlights
+      // strip renders exactly that: the jobtitle-and-company composite carries
+      // the jobtitle id on more than one element, and annotating each printed
+      // the same name twice, stacked. The name is identical either way, so
+      // declining the repeat risks nothing, which is why one mechanism covers
+      // both a nested duplicate and a sibling copy. The anchored surfaces keep
+      // their sharper filter: on the All properties panel the anchor check is
+      // what excludes phone-button inside the fax row, a case where the names
+      // DIFFER and a dedupe would have kept the wrong one.
+      const seenNames = surface.anchor === null ? new Set() : null;
+
       // A surface only declares a list when its rows need scoping to direct
       // children of one. Where the row id identifies itself, the container is
       // scope enough.
@@ -88,11 +127,13 @@ export function annotateRecordProperties(root) {
         for (const row of scope.querySelectorAll(surface.row)) {
           result.rows += 1;
           try {
-            if (!annotateRow(row, surface, page.objectTypeId, index)) {
+            const outcome = annotateRow(row, surface, page.objectTypeId, index, seenNames);
+            if (outcome && outcome.node) kept.add(outcome.node);
+            if (outcome && outcome.inserted) {
+              result.inserted += 1;
+            } else {
               result.skipped += 1;
-              continue;
             }
-            result.inserted += 1;
           } catch {
             // One row's worth of surprise is one missing line. It is never
             // allowed to become a broken record page for whoever is using this
@@ -100,6 +141,19 @@ export function annotateRecordProperties(root) {
             result.skipped += 1;
           }
         }
+      }
+
+      // The stranded-node sweep. placeApiName tidies the one parent it writes
+      // to, which is as far as it can see. When React rebuilds a wrapper and
+      // the row lands in a NEW parent, the node placed on an earlier pass
+      // survives in the old one, still attached, still rendering: the same
+      // name printed twice, and no later placement ever visits it. So each
+      // container ends its pass keeping exactly the nodes the pass stood
+      // behind. Removing our own nodes cannot desync React, which never saw
+      // them; and a row that stopped resolving loses its stale line too, which
+      // is the missing-over-wrong trade every surface already makes.
+      for (const node of container.querySelectorAll(API_NAME_SELECTOR)) {
+        if (!kept.has(node)) node.remove();
       }
     }
   }
@@ -110,11 +164,13 @@ export function annotateRecordProperties(root) {
 /**
  * One row.
  *
- * @returns {boolean} true only when a node was inserted, which is what the
- *   host's cycle breaker counts. A correction is not an insertion, and neither
- *   is a skip.
+ * @returns {false | {inserted: boolean, node: Element | null}} false is a skip.
+ *   `inserted` is true only when a node was placed, which is what the host's
+ *   cycle breaker counts: a correction is not an insertion. `node` is whichever
+ *   of our nodes now serves this row, corrected or fresh, so the caller can
+ *   keep it through the end-of-container sweep.
  */
-function annotateRow(row, surface, objectTypeId, index) {
+function annotateRow(row, surface, objectTypeId, index, seenNames) {
   // The marker HubSpot puts on every property row, required as a direct child.
   // This is what a nested decoy cannot fake at the same depth. Only surfaces
   // whose row id is bare declare one: where the id carries a prefix it already
@@ -127,12 +183,21 @@ function annotateRow(row, surface, objectTypeId, index) {
   const read = readRowName(surface, {
     rowValue: surface.rowAttribute ? row.getAttribute(surface.rowAttribute) : null,
     sourceValue: source ? source.getAttribute(surface.sourceAttribute) : null,
-    // textContent, never innerHTML or an attribute. This is the rendered label,
-    // and the only thing done with it is a lookup in a map we built ourselves.
-    labelValue: labelNode ? labelNode.textContent : null,
+    // Text, never innerHTML or an attribute. This is the rendered label, and
+    // the only thing done with it is a lookup in a map we built ourselves.
+    labelValue: labelNode ? labelText(labelNode) : null,
     index,
   });
   if (!read.ok) return false;
+
+  // The composite guard, for anchorless surfaces only. A name this container
+  // has already carried this pass is the same property wrapped again, and one
+  // line is the truth about it. Checked after the read so a refused decoy never
+  // burns the name for the real row behind it.
+  if (seenNames) {
+    if (seenNames.has(read.propertyName)) return false;
+    seenNames.add(read.propertyName);
+  }
 
   // The anchor does two jobs, and the second one is not obvious.
   //
@@ -150,7 +215,8 @@ function annotateRow(row, surface, objectTypeId, index) {
   const anchor = surface.anchor ? row.querySelector(surface.anchor) : row;
   if (!anchor) return false;
 
-  return placeApiName(anchor, read.propertyName, objectTypeId);
+  const inserted = placeApiName(anchor, read.propertyName, objectTypeId, surface.placement);
+  return { inserted, node: apiNameNodeFor(anchor, surface.placement) };
 }
 
 /** The feature record the host registers. */

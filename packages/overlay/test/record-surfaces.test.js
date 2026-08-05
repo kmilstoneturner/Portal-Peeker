@@ -11,6 +11,7 @@ import {
   parseRecordPath,
   readRecordRow,
 } from '../src/record-surfaces.js';
+import { PLACEMENT } from '../src/api-name-node.js';
 
 describe('parseRecordPath', () => {
   it('reads the objectTypeId out of a record path', () => {
@@ -192,6 +193,28 @@ describe('the SURFACES table', () => {
   it('gives every surface a distinct id', () => {
     const ids = SURFACES.map((surface) => surface.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // Placement is a separate axis from name derivation, and an unrecognised value
+  // would fall through to BEFORE rather than fail, which is the quiet kind of
+  // wrong. Absent is fine and means BEFORE; a typo is not.
+  it('never declares a placement that does not exist', () => {
+    for (const surface of SURFACES) {
+      if (surface.placement === undefined) continue;
+      expect(Object.values(PLACEMENT), `${surface.id}.placement`).toContain(surface.placement);
+    }
+  });
+
+  // The invariant that keeps Property history's shape from being copied wrongly
+  // onto the next surface. When the anchor IS the label, the name has to go
+  // inside it: placed BEFORE, it would land between two table cells, where a
+  // browser will not leave it, and the label would then be read back with the
+  // name glued on.
+  it('appends rather than inserts wherever the anchor is also the label', () => {
+    for (const surface of SURFACES) {
+      if (!surface.label || surface.anchor !== surface.label) continue;
+      expect(surface.placement, `${surface.id}.placement`).toBe(PLACEMENT.INSIDE);
+    }
   });
 
   // Class names on HubSpot's pages are styled-components hashes that change on

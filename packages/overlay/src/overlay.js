@@ -16,9 +16,10 @@ import { SETTING } from './settings.js';
 import { readSettings, onSettingsChanged } from './settings-store.js';
 import { propertyListFeature } from './property-list.js';
 import { recordPropertiesFeature } from './record-properties.js';
+import { createFormFeature } from './create-form.js';
 import { startPropertyNames } from './property-names-store.js';
 
-const FEATURES = [propertyListFeature, recordPropertiesFeature];
+const FEATURES = [propertyListFeature, recordPropertiesFeature, createFormFeature];
 
 // A background tab is served no animation frames, so a rAF-only debounce would
 // stall there until it is looked at. 200ms is imperceptible on a tab nobody is

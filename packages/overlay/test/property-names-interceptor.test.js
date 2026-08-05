@@ -65,13 +65,29 @@ describe('before anyone asks', () => {
     await settle();
     expect(sent).toHaveLength(0);
   });
+
+  // The live sequence, and the order matters. The setting is read
+  // asynchronously at document_idle, so the ask can land after several of these
+  // responses have already arrived: on a deal record, 0-3 finished at 609ms and
+  // 0-4 at 3719ms. Everything seen in that window has to still be there when the
+  // ask finally comes.
+  it('holds every object type it sees, not just the most recent', async () => {
+    await window.fetch('/api/properties/v4/groups/0-3/properties');
+    await settle();
+    await window.fetch('/api/properties/v4/groups/0-4/properties');
+    await settle();
+    expect(sent).toHaveLength(0);
+  });
 });
 
 describe('once asked', () => {
-  it('flushes what it already held', async () => {
+  // All three, because holding one slot is what put an index for line items in
+  // front of a page showing a deal, and took every label surface with it. It
+  // failed safe and so failed silently, which is the worst way to find out.
+  it('flushes everything it already held', async () => {
     ask();
     await settle();
-    expect(sent).toHaveLength(1);
+    expect(sent.map((message) => message.objectTypeId)).toEqual(['0-1', '0-3', '0-4']);
     expect(sent[0]).toMatchObject({ objectTypeId: '0-1', body: BODY });
   });
 
@@ -88,6 +104,16 @@ describe('once asked', () => {
     await window.fetch('/api/properties/v4/groups/2-98765/properties');
     await settle();
     expect(sent[sent.length - 1].objectTypeId).toBe('2-98765');
+  });
+
+  it('keeps sending each type as it arrives, once the ask has been made', async () => {
+    const before = sent.length;
+    await window.fetch('/api/properties/v4/groups/0-5/properties');
+    await settle();
+    await window.fetch('/api/properties/v4/groups/0-7/properties');
+    await settle();
+
+    expect(sent.slice(before).map((message) => message.objectTypeId)).toEqual(['0-5', '0-7']);
   });
 
   it('still ignores everything that is not the properties endpoint', async () => {

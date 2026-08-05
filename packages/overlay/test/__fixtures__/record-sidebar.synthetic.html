@@ -327,10 +327,16 @@
             and is not one: this id is two properties joined, not a property
             name. It is never selected on, which is why the strip reads one
             prefixed id rather than requiring the pair to agree.
+
+            The display id appears TWICE, one span wrapped in the other, which
+            is what a live contact rendered: two stacked "jobtitle" lines over
+            one value. Both match the row selector, and with no anchor to
+            filter one out, each got a node. The repeat resolves to the same
+            name, so it is declined per container rather than drawn again.
           -->
           <div data-test-id="highlight-property-item-jobtitle-and-company">
             <span data-locale-at-render="en-us" data-key="ObjectHighlightCard.jobtitleAndCompany">
-              <span data-test-id="highlight-property-display-jobtitle">Head of Something</span>
+              <span data-test-id="highlight-property-display-jobtitle"><span data-test-id="highlight-property-display-jobtitle">Head of Something</span> at Sample Co</span>
             </span>
           </div>
           <div data-test-id="highlight-property-item-email">
@@ -482,3 +488,61 @@
     </ul>
   </div>
 </div>
+
+<!--
+  The Property history modal, opened over a record. Every id in it is generic
+  (property-info-table-row, property-label-cell), which is the same tell the two
+  cards above give: the internal name is nowhere in the table, only the rendered
+  label. NAME_FROM.LABEL.
+
+  The label cell holds a bare text node and nothing else, which is the whole
+  reason this surface appends rather than inserting: there is no element to sit
+  ahead of, and a <code> placed between two cells is not markup a browser keeps
+  where you put it.
+
+  So this is also the one fixture where our own node ends up INSIDE the node the
+  label is read from. That is what labelText in record-properties.js exists for,
+  and the idempotency test on this table is what would catch its removal.
+-->
+<table data-test-id="property-info-table">
+  <tbody>
+    <!-- Resolves exactly. -->
+    <tr data-test-id="property-info-table-row">
+      <td data-test-id="property-label-cell">Create Date</td>
+      <td data-test-id="property-value-cell"><span>07/02/2026</span></td>
+    </tr>
+
+    <!--
+      The same property again. A history lists one property once per change, so
+      repeats are the normal case rather than an edge, and every row of it has
+      to be annotated.
+    -->
+    <tr data-test-id="property-info-table-row">
+      <td data-test-id="property-label-cell">Create Date</td>
+      <td data-test-id="property-value-cell"><span>07/01/2026</span></td>
+    </tr>
+
+    <!-- Case folding, as on the cards: the property is labelled "Lifecycle Stage". -->
+    <tr data-test-id="property-info-table-row">
+      <td data-test-id="property-label-cell">Lifecycle stage</td>
+      <td data-test-id="property-value-cell"><span>Customer</span></td>
+    </tr>
+
+    <!-- A label no property carries. Not found is not a guess. -->
+    <tr data-test-id="property-info-table-row">
+      <td data-test-id="property-label-cell">Not A Real Label</td>
+      <td data-test-id="property-value-cell"><span>--</span></td>
+    </tr>
+
+    <!--
+      Two properties share this label, so the row is declined. Worth pinning on
+      this surface specifically: a real contact history is thick with rows
+      labelled "Last Modified Date", and portals carrying both lastmodifieddate
+      and hs_lastmodifieddate under that one label make it exactly this case.
+    -->
+    <tr data-test-id="property-info-table-row">
+      <td data-test-id="property-label-cell">Shared Label</td>
+      <td data-test-id="property-value-cell"><span>--</span></td>
+    </tr>
+  </tbody>
+</table>

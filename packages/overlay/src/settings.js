@@ -33,7 +33,7 @@ export const SETTINGS = [
     // The note names where it currently works. The label deliberately does not,
     // which is what made widening this to record pages one sentence rather than
     // a rename.
-    note: "Adds each property's internal name under its label, on the property settings page and on record pages",
+    note: "Adds each property's internal name under its label, on the property settings page, on record pages, and in the create record dialog",
     // Off. Editor numbers and the context block default on because they add to
     // a file the user asked for. This one changes what a customer's screen
     // looks like, which is not something to switch on for someone.

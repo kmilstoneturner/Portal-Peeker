@@ -22,6 +22,23 @@
 // a structural constant should keep.
 export const MAX_NAME_LENGTH = 512;
 
+/**
+ * The prefix HubSpot puts on a property control's test id.
+ *
+ * Declared once and imported by everything that reads it, because two
+ * independent surfaces now do: the record sidebar's second source, and the
+ * create dialog's only source. Two copies of a HubSpot-side string is the shape
+ * that drifts.
+ *
+ * In this bundle it is worse than drift. tools/build.mjs flattens every module
+ * into ONE scope, so a second `const PROPERTY_INPUT_PREFIX` declared privately
+ * somewhere else is a SyntaxError that takes the whole overlay down on load,
+ * however correct both modules look on their own. That is not hypothetical: it
+ * is what happened when create-form.js first declared its own, and
+ * overlay-bundle.test.js is what caught it.
+ */
+export const PROPERTY_INPUT_PREFIX = 'property-input-';
+
 /** The shape every parser in this package refuses with. */
 export const refuse = (reason) => ({ ok: false, reason });
 

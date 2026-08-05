@@ -78,6 +78,20 @@
       "world": "ISOLATED",
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "*://*.hubspot.com/object-builder/*"
+      ],
+      "js": [
+        "overlay/overlay.js"
+      ],
+      "css": [
+        "overlay/overlay.css"
+      ],
+      "world": "ISOLATED",
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }

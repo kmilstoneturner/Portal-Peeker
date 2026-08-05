@@ -5,16 +5,24 @@
 // thing this extension persists, and tools/check-settings.mjs fails the build on
 // any key it does not declare.
 //
-// The index is keyed by objectTypeId and handed out only to a caller asking for
+// Indexes are keyed by objectTypeId and handed out only to a caller asking for
 // that same type. A contact's labels resolving a company's rows would be a
 // confident wrong answer, which is the one outcome this feature is built to
 // avoid.
+//
+// One index PER TYPE, not one index plus the type it happens to be for. A record
+// page fetches the properties endpoint for more than one object type: a live
+// deal record asked for 0-3 at 609ms and 0-4 at 3719ms. Holding a single slot
+// meant the second arrival evicted the first, so the page ended up with an index
+// for line items while showing a deal, and every label surface went quiet. The
+// keyed lookup below is the same guarantee it always was, now stated as a lookup
+// rather than resting on which response happened to land last.
 
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
 import { PROPERTY_NAMES_CHANNEL, PROPERTY_NAMES_MSG } from './property-names-protocol.js';
 import { parsePropertyNames } from './property-names.js';
 
-let loaded = null;
+const loaded = new Map();
 let listening = false;
 
 /**
@@ -44,7 +52,7 @@ export function startPropertyNames(onLoaded) {
     // surfaces that read the name off the page are unaffected.
     if (!parsed.ok) return;
 
-    loaded = { objectTypeId: data.objectTypeId, index: parsed.index };
+    loaded.set(data.objectTypeId, parsed.index);
 
     try {
       if (onLoaded) onLoaded();
@@ -82,11 +90,11 @@ export function startPropertyNames(onLoaded) {
  * page where the response never arrived. Callers skip rather than wait.
  */
 export function propertyNameIndex(objectTypeId) {
-  if (!loaded || loaded.objectTypeId !== objectTypeId) return null;
-  return loaded.index;
+  if (typeof objectTypeId !== 'string') return null;
+  return loaded.get(objectTypeId) || null;
 }
 
-/** Drop the index. Used by tests, and by nothing else. */
+/** Drop every index. Used by tests, and by nothing else. */
 export function resetPropertyNames() {
-  loaded = null;
+  loaded.clear();
 }

@@ -153,18 +153,20 @@ describe('annotateRecordProperties marks up the rows it can read', () => {
   });
 
   it('reports what it did', () => {
-    // No index loaded here, so the seven label rows all skip. That is the
+    // No index loaded here, so the twelve label rows all skip. That is the
     // honest resting state of a page whose properties response never arrived.
     //
-    // 6 containers: two PROPERTIES_V3 cards (HubSpot's own and a custom one),
-    // the highlights container, the All properties panel, Contact profile and
-    // Data highlights. The ASSOCIATION_V3 card is not among them, and it is the
-    // card type that excludes it.
+    // 7 containers: two PROPERTIES_V3 cards (HubSpot's own and a custom one),
+    // the highlights container, the All properties panel, Contact profile, Data
+    // highlights, and the Property history table. The ASSOCIATION_V3 card is not
+    // among them, and it is the card type that excludes it.
+    // rows counts the composite's nested duplicate jobtitle span; skipped
+    // includes it, declined because the strip already carries that name.
     expect(annotateRecordProperties(document)).toEqual({
-      cards: 6,
-      rows: 28,
+      cards: 7,
+      rows: 34,
       inserted: 13,
-      skipped: 15,
+      skipped: 21,
     });
   });
 
@@ -407,6 +409,30 @@ describe('the surfaces resolved from a label', () => {
     for (const name of LABELLED) expect(names(), name).not.toContain(name);
   });
 
+  // The one that was actually broken, and that broke nothing visibly. A record
+  // page fetches this endpoint for SEVERAL object types, and not in an order
+  // that favours the one on screen: a live deal record asked for 0-3 at 609ms
+  // and 0-4 at 3719ms. Held as one slot, the late arrival evicted the index the
+  // page needed and every label surface simply stopped, which looks identical to
+  // a feature nobody switched on.
+  it('keeps this page\'s index when another object type arrives after it', async () => {
+    await loadPropertyNames('0-1');
+    await loadPropertyNames('0-4', JSON.stringify([
+      { name: 'g', propertyDefinitions: [{ property: { name: 'quantity', label: 'Quantity' } }] },
+    ]));
+
+    annotateRecordProperties(document);
+    for (const name of LABELLED) expect(names(), name).toContain(name);
+  });
+
+  // And the converse, so the fix cannot become "hand out whatever you have".
+  it('still refuses a type it was never given, whatever else it holds', async () => {
+    await loadPropertyNames('0-4');
+    at('https://app-x.hubspot.com/contacts/1/record/0-9/2');
+    annotateRecordProperties(document);
+    for (const name of LABELLED) expect(names(), name).not.toContain(name);
+  });
+
   it('ignores a body it cannot parse', async () => {
     await loadPropertyNames('0-1', 'not json');
     annotateRecordProperties(document);
@@ -422,6 +448,149 @@ describe('the surfaces resolved from a label', () => {
     const first = names().filter((n) => n === 'createdate').length;
     expect(annotateRecordProperties(document).inserted).toBe(0);
     expect(names().filter((n) => n === 'createdate')).toHaveLength(first);
+  });
+});
+
+// The Property history modal. Same NAME_FROM.LABEL as the two cards above, and
+// the only surface whose name lands INSIDE the node its label is read from,
+// which is a failure mode none of the others can have.
+describe('the Property history table', () => {
+  const cells = () => [...document.querySelectorAll('[data-test-id="property-label-cell"]')];
+
+  /** The name drawn under one label cell, or null where the row was declined. */
+  const nameUnder = (cell) => {
+    const last = cell.lastElementChild;
+    return last && last.className === 'pp-api-name' ? last.textContent : null;
+  };
+
+  // Two resolve, one resolves only because matching folds case, and two are
+  // declined: a label no property carries and a label two properties share.
+  const HISTORY = ['createdate', 'createdate', 'lifecyclestage', null, null];
+
+  it('annotates nothing until the property index arrives', () => {
+    annotateRecordProperties(document);
+    for (const cell of cells()) expect(nameUnder(cell)).toBeNull();
+  });
+
+  it('puts the name inside the label cell, after the label text', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+
+    const cell = cells()[0];
+    // HubSpot's own text node, still first and still untouched.
+    expect(cell.firstChild.nodeType).toBe(3);
+    expect(cell.firstChild.textContent).toBe('Create Date');
+    expect(nameUnder(cell)).toBe('createdate');
+    expect(cell.lastElementChild.getAttribute('data-pp-object-type')).toBe('0-1');
+  });
+
+  // A history lists one property once per change, so a repeat is the normal
+  // case here rather than an edge, and every row of it has to be annotated.
+  it('annotates every row of a property that changed more than once', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+    expect(cells().map(nameUnder)).toEqual(HISTORY);
+  });
+
+  it('converges after one pass and never doubles up', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+
+    expect(annotateRecordProperties(document).inserted).toBe(0);
+    annotateRecordProperties(document);
+
+    expect(cells().map(nameUnder)).toEqual(HISTORY);
+    // One from Data highlights, two from the history rows. No duplicates.
+    expect(names().filter((n) => n === 'createdate')).toHaveLength(3);
+  });
+
+  // This is the guard on labelText, and the only test that can be: reading the
+  // cell with textContent gives "Create Datecreatedate" on the second pass, so
+  // the lookup resolves nothing and the row skips. Nothing looks wrong until
+  // the row is reused, and React reuses row elements across renders. Then the
+  // cell says one property and the name under it says another, with no later
+  // pass able to correct it. The name has to follow the label, not the node.
+  it('corrects a cell whose label changed under it', async () => {
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+
+    const cell = cells()[0];
+    expect(nameUnder(cell)).toBe('createdate');
+
+    cell.firstChild.textContent = 'City';
+    annotateRecordProperties(document);
+
+    expect(nameUnder(cell)).toBe('city');
+    expect(cell.querySelectorAll(API_NAME_SELECTOR)).toHaveLength(1);
+  });
+
+  // The inverse property this repo asserts on its JSON insertions, applied to
+  // the new placement: appending is still additive only, so undoing it gives
+  // back exactly the markup HubSpot rendered.
+  it('leaves the table exactly as it found it when removed', async () => {
+    const before = serialize();
+
+    await loadPropertyNames();
+    annotateRecordProperties(document);
+    expect(names().length).toBeGreaterThan(ANNOTATED.length);
+
+    removeApiNames(document);
+    expect(serialize()).toBe(before);
+  });
+});
+
+// Seen live on a contact record: "jobtitle" printed twice, stacked, over one
+// value. The composite item wraps the same display id around the value more
+// than once, and the strip has no anchor to filter the repeat the way the All
+// properties panel filters phone-button. Same name both times, so declining
+// the repeat risks nothing.
+describe('the composite strip item', () => {
+  const jobtitleRows = () =>
+    document.querySelectorAll('[data-test-id="highlight-property-display-jobtitle"]');
+
+  it('draws one line for a name however many spans carry it', () => {
+    // The fixture really carries the duplicate, or this test tests nothing.
+    expect(jobtitleRows().length).toBe(2);
+
+    annotateRecordProperties(document);
+    expect(names().filter((n) => n === 'jobtitle')).toHaveLength(1);
+
+    // On the outermost span, above the whole rendered value.
+    expect(jobtitleRows()[0].previousElementSibling.className).toBe('pp-api-name');
+  });
+
+  it('stays at one line across passes', () => {
+    annotateRecordProperties(document);
+    annotateRecordProperties(document);
+    expect(names().filter((n) => n === 'jobtitle')).toHaveLength(1);
+  });
+});
+
+// The other way one name gets printed twice, and the one placeApiName cannot
+// reach: React rebuilds a wrapper, the row lands in a NEW parent, and the node
+// placed on an earlier pass survives in the old one, attached and rendering.
+// The placement-time sweep tidies only the parent being written to, so the
+// stranded node is invisible to it forever. The end-of-container sweep is what
+// takes it out.
+describe('a re-render that strands our node in an old parent', () => {
+  it('removes the stranded node on the next pass', () => {
+    annotateRecordProperties(document);
+
+    const row = document.querySelector('[data-test-id="highlight-property-display-jobtitle"]');
+    const stranded = row.previousElementSibling;
+    expect(stranded.className).toBe('pp-api-name');
+
+    // The re-parent, in the smallest form that reproduces it: the row moves
+    // into a fresh wrapper, our node stays behind.
+    const wrapper = row.ownerDocument.createElement('span');
+    row.parentElement.appendChild(wrapper);
+    wrapper.appendChild(row);
+
+    annotateRecordProperties(document);
+
+    expect(stranded.isConnected).toBe(false);
+    expect(names().filter((n) => n === 'jobtitle')).toHaveLength(1);
+    expect(row.previousElementSibling.className).toBe('pp-api-name');
   });
 });
 

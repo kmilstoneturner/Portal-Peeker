@@ -41,9 +41,20 @@ const PROPERTIES_PATH = /\/api\/properties\/v\d+\/groups\/(\d+-\d+)\/properties$
 
 const origin = window.location.origin;
 
-// The last response seen, and whether anyone has asked for it. Nothing is sent
-// until the overlay asks, which it does only when the user has the setting on.
-let buffered = null;
+// What has been seen and not yet handed over, keyed by objectTypeId, plus
+// whether anyone has asked. Nothing is sent until the overlay asks, which it
+// does only when the user has the setting on.
+//
+// A MAP, not one slot, and that was a real bug rather than a precaution. A
+// record page fetches this endpoint for more than one object type: a deal
+// record asks for 0-3, then 3.1 seconds later for 0-4 (its line items).
+// Measured on a live deal, where 0-3 finished at 609ms and 0-4 at 3719ms. With
+// one slot the later arrival replaced the earlier one, the store then held an
+// index for an object the page was not showing, and every label surface on the
+// page went quiet. It failed safe, which is why nothing looked broken: the rule
+// turns a wrong answer into a missing line, and a feature that silently stops
+// is exactly what that looks like from outside.
+const buffered = new Map();
 let requested = false;
 
 /** The objectTypeId this URL is asking about, or null for everything else. */
@@ -70,28 +81,33 @@ function urlOf(input) {
   return null;
 }
 
+/**
+ * Hand over everything held, one message per object type.
+ *
+ * Sent entries are dropped from the map, so this is not a resend of the whole
+ * history on every response. A second response for a type already sent simply
+ * re-buffers and goes again, and the store overwrites that one type.
+ */
 function send() {
-  if (!requested || !buffered) return;
-  try {
-    window.postMessage(
-      {
-        channel: PROPERTY_NAMES_CHANNEL,
-        type: PROPERTY_NAMES_MSG.LOADED,
-        objectTypeId: buffered.objectTypeId,
-        body: buffered.body,
-      },
-      origin,
-    );
-  } catch {
-    // A payload that will not structured-clone is a lookup we do not get, not a
-    // broken page.
+  if (!requested) return;
+  for (const [objectTypeId, body] of [...buffered]) {
+    buffered.delete(objectTypeId);
+    try {
+      window.postMessage(
+        { channel: PROPERTY_NAMES_CHANNEL, type: PROPERTY_NAMES_MSG.LOADED, objectTypeId, body },
+        origin,
+      );
+    } catch {
+      // A payload that will not structured-clone is a lookup we do not get, not
+      // a broken page.
+    }
   }
 }
 
 /** Hold it. Send only if someone has already asked. */
 function emit(objectTypeId, bodyText) {
   if (typeof bodyText !== 'string' || bodyText.length === 0) return;
-  buffered = { objectTypeId, body: bodyText };
+  buffered.set(objectTypeId, bodyText);
   send();
 }
 

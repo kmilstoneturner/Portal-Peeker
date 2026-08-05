@@ -44,17 +44,24 @@
 //
 //   NAME_FROM.LABEL        the card emits no name at all, so the rendered label
 //                          is resolved against HubSpot's own property metadata.
-//                          Used by Contact profile and Data highlights. One
-//                          source, and allowed to be, because the failure is
-//                          detectable: a label matching no property or two
-//                          properties skips the row. See property-names.js.
+//                          Used by Contact profile, Data highlights, and the
+//                          Property history modal. One source, and allowed to
+//                          be, because the failure is detectable: a label
+//                          matching no property or two properties skips the
+//                          row. See property-names.js.
+//
+// Where the name SITS is a separate axis from where it comes from, and the
+// table carries both: see `anchor` and `placement`. Every surface but one puts
+// the name beside an element; Property history appends it inside the label
+// cell, because that cell holds a bare text node and nothing to sit ahead of.
 //
 // WHERE THE LABEL SURFACES CAME FROM
 //
-// Two card types render properties and emit no internal name anywhere:
+// Three surfaces render properties and emit no internal name anywhere:
 //
-//   PROPERTIES_LIST  ("Contact profile")  rows are [crm-property-list-item]
-//   DATA_HIGHLIGHTS  ("Data highlights")  rows are [crm-data-highlights-item]
+//   PROPERTIES_LIST  ("Contact profile")   rows are [crm-property-list-item]
+//   DATA_HIGHLIGHTS  ("Data highlights")   rows are [crm-data-highlights-item]
+//   the Property history modal             rows are [property-info-table-row]
 //
 // The pattern is consistent. Where the row id is GENERIC rather than carrying
 // the name, the name is absent from the card entirely: what is left is a
@@ -67,8 +74,10 @@
 // Checked three ways on a live record before concluding: every attribute on
 // every row enumerated, inline scripts searched for bootstrapped card config
 // (none), and all 245 window globals searched for property metadata (none).
+// Property history was read later, from its rendered markup, and every id in
+// that table is generic in exactly the way above.
 //
-// So these two read the label and resolve it against the property metadata
+// So these three read the label and resolve it against the property metadata
 // HubSpot already fetches. That response is INTERCEPTED, never requested: see
 // property-names-interceptor.js, and PRIVACY.md, which says so in the copy.
 //
@@ -80,13 +89,13 @@
 // bundlable: see the note in test-id.js.
 
 // One line each: tools/build.mjs is line based and throws on a wrapped import.
-import { afterPrefix, nameProblem, refuse } from './test-id.js';
+import { afterPrefix, nameProblem, refuse, PROPERTY_INPUT_PREFIX } from './test-id.js';
 import { lookupPropertyName } from './property-names.js';
+import { PLACEMENT } from './api-name-node.js';
 
 // objectTypeId is 0-N for stock objects and 2-N for custom ones.
 const PATH_OBJECT_TYPE = /\/record\/(\d+-\d+)(?:\/|$)/;
 
-const PROPERTY_INPUT_PREFIX = 'property-input-';
 const HIGHLIGHT_PREFIX = 'highlight-property-display-';
 
 /** How a surface derives a name. See the note at the top of this file. */
@@ -223,6 +232,39 @@ export const SURFACES = [
     // uncorrectable when it re-renders. nth-of-type counts only paragraphs and
     // is blind to what we put between them.
     anchor: 'div > p:nth-of-type(2)',
+  },
+
+  {
+    // The Property history modal, opened over a record.
+    //
+    // Every id in the table is generic: property-info-table-row on the row,
+    // property-label-cell on the cell. That is the same tell PROPERTIES_LIST
+    // gives, and it means the same thing here, checked the same way: nothing in
+    // the table carries an internal name, only the rendered label. So the label
+    // is the handle, resolved against the same intercepted metadata.
+    //
+    // The modal renders over the record page without navigating, so the path
+    // still names the object type and parseRecordPath is unchanged.
+    id: 'property-history',
+    nameFrom: NAME_FROM.LABEL,
+    container: '[data-test-id="property-info-table"]',
+    row: '[data-test-id="property-info-table-row"]',
+    label: '[data-test-id="property-label-cell"]',
+
+    // The label cell is the anchor, and the name goes INSIDE it. Two reasons,
+    // and the first is not a preference: that cell's only child is a bare text
+    // node, so there is no element to insert ahead of, and a BEFORE placement
+    // would put a <code> between two table cells, which a browser hoists
+    // straight back out of the table. The second is that under the label is
+    // where it was asked for, and where display:block then puts it.
+    //
+    // This is the only surface where the annotation lands inside the node its
+    // label is read from, which is why record-properties.js reads that label
+    // past its own nodes. Without that, the second pass reads the label back
+    // with the name glued to it, resolves nothing, and leaves a name it can no
+    // longer correct.
+    anchor: '[data-test-id="property-label-cell"]',
+    placement: PLACEMENT.INSIDE,
   },
 ];
 
