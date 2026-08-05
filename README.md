@@ -4,6 +4,7 @@ A Chrome extension for HubSpot admins. It captures the JSON behind a HubSpot wor
 you open and save it, and lets you copy or download those exact bytes.
 
 <img width="341" height="477" alt="Portal-Peeker" src="https://github.com/user-attachments/assets/c4078b7a-35a7-4c7d-8d8b-8e30d48e0dde" />
+<img width="1280" height="800" alt="API Names" src="https://github.com/user-attachments/assets/4deb2892-23ed-4b67-b631-9c72cd14ce81" />
 
 
 **The extension talks to no host but HubSpot.** No telemetry, no analytics, no error
