@@ -1,7 +1,7 @@
 # Overlay fixtures
 
-Both fixtures here are hand authored, like the synthetic JSON fixtures in
-`packages/core`. Neither is a saved copy of a real page, and a real one must
+Every fixture here is hand authored, like the synthetic JSON fixtures in
+`packages/core`. None is a saved copy of a real page, and a real one must
 never be committed here.
 
 Two reasons. A real page carries a portal's custom property labels, which are
@@ -87,12 +87,31 @@ bare name, no second source, and no per-row marker.
 | `property-input-phone-button` inside `property-input-fax` | A control nested in another property's row, wearing the prefix. Same shape as `badge` inside `lifecyclestage`. Would otherwise annotate the fax row "phone-button". |
 | `property-input-name` in an `ASSOCIATION_V3` card | The associated **company's** `name` property on a contact record. The prefix says "a property input"; only the container scope says "one belonging to the record you are looking at". |
 
-### The two label surfaces
+The last three are why the anchor is a **validity check** and not merely an
+insertion point. Measured on a live panel: 101 nodes match the row selector, 33
+carry the anchor, 33 carry a label, and it is the same 33. Turning the anchor
+into a fallback that places the name somewhere else would ship all of them.
 
-Contact profile (`PROPERTIES_LIST`) and Data highlights (`DATA_HIGHLIGHTS`) put
-no internal name in the page at all, so their rows are resolved by matching the
-rendered label against HubSpot's property metadata. The fixture stands that
-metadata up in `record-properties.test.js` rather than here.
+### The strip's composite item
+
+`highlight-property-item-jobtitle-and-company` wraps the same
+`highlight-property-display-jobtitle` id around the value twice, one span inside
+the other, which is what a live contact rendered. The strip is the one surface
+with no anchor, so nothing filtered the repeat and the name printed twice,
+stacked. Two rules carry the fix, and the fixture pins both: a name the
+container already carries in a pass is declined (safe because the repeat is the
+SAME name; the anchored surfaces keep the anchor filter instead, which is what
+excludes `phone-button`, where the names differ), and every container pass ends
+by sweeping out any of our nodes the pass did not stand behind, which is what
+removes a node stranded in an old parent when React rebuilds a wrapper.
+
+### The three label surfaces
+
+Contact profile (`PROPERTIES_LIST`), Data highlights (`DATA_HIGHLIGHTS`), and the
+Property history modal (`property-info-table`) put no internal name in the page
+at all, so their rows are resolved by matching the rendered label against
+HubSpot's property metadata. The fixture stands that metadata up in
+`record-properties.test.js` rather than here.
 
 | Row | Why it exists |
 |---|---|
@@ -106,7 +125,38 @@ between them. The anchor is `p:nth-of-type(2)` rather than `p + p` deliberately:
 inserting our `<code>` breaks the adjacency, so `p + p` would match on the first
 pass and never again, leaving the row uncorrectable on re-render.
 
-The last three are why the anchor is a **validity check** and not merely an
-insertion point. Measured on a live panel: 101 nodes match the row selector, 33
-carry the anchor, 33 carry a label, and it is the same 33. Turning the anchor
-into a fallback that places the name somewhere else would ship all of them.
+The Property history rows carry the label as a bare text node in
+`property-label-cell`, with nothing to insert ahead of, so the name is **appended
+into that cell** instead. It is the only surface where our node ends up inside the
+node the label is read from, which is what `labelText` in `record-properties.js`
+exists for. The fixture repeats "Create Date" twice on purpose: a history lists one
+property once per change, so a repeat is the normal case there, and each row has to
+be annotated on its own.
+
+## `create-form.synthetic.html`
+
+The create-record dialog, scoped by `[data-selenium-test="creator"]`. HubSpot
+draws it in a same-origin iframe of its own
+(`/object-builder/{portalId}/{objectTypeId}/embed`), which is why the manifest
+gives the overlay a second entry with `all_frames: true`. Each field is a
+`[data-test-id="FormControl"]` holding one
+`data-selenium-test="property-input-{name}"` control, which is `NAME_FROM.PREFIX`
+on a different attribute. No property metadata is involved, so this surface works
+on every object including custom ones and on pages that are not record pages.
+
+| Row | Why it exists |
+|---|---|
+| `property-input-domain` | The happy path, on a textarea. |
+| `property-input-label-foo` | The prefix trap, stripped by length rather than by replace or a split on `-`. |
+| `property-input-hubspot_owner_id` | A dropdown, whose control is a `<button>` nesting a caret and a typeahead item. Matched on the attribute alone, never on tag or position. |
+| `property-input-city`, disabled | The whole secondary fieldset renders disabled until a name is typed. Real properties, so they annotate. "Disabled fields are different" is the obvious wrong guess. |
+| `property-input-fax` **plus** `property-input-phone-button` | Two prefixed controls in one field. Taking the first would be a guess, so the field is declined. Unobserved here, but the All properties panel renders exactly this shape. |
+| A field with no source | Something in the form that is not a property field. |
+| A field with no anchor | Readable, nowhere to put the name. |
+| A `FormControl` outside the dialog | Container scoping is the only thing that excludes it. |
+
+Every row carries a label whose own id is `FormControl-property-input-input-40`.
+It **contains** the prefix and is not a name: the tail is the DOM id of the input.
+It costs nothing to refuse, because `afterPrefix` requires the value to *start*
+with the prefix. It is in the fixture so that relaxing a selector into a substring
+match fails loudly.

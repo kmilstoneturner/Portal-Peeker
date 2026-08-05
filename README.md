@@ -69,7 +69,10 @@ Three places there: the **Key information** card in the left sidebar, the **View
 panel including every property group in it, and the **highlights strip** at the top of the
 record.
 
-On those three, the name is already on the page. HubSpot writes it into the page's own HTML
+The **create record dialog** gets the same treatment, for every object including custom ones,
+under each field's label as you fill the form in.
+
+On those, the name is already on the page. HubSpot writes it into the page's own HTML
 attributes and simply does not display it, so this reads what is in front of you and makes it
 legible. It is display only, it is undone the moment you untick the box, and it is off until
 you turn it on.
@@ -82,20 +85,26 @@ The name has to identify itself before it is shown, so when HubSpot changes its 
 annotation disappears rather than showing you the wrong name**. Anything it cannot read with
 confidence is skipped and the rest of the page is still annotated.
 
-That rule costs coverage, deliberately, and there are two gaps worth naming.
+That rule costs coverage, deliberately. One family of surfaces earns its names a
+different way, and two gaps are permanent.
 
-**Contact profile and Data highlights work differently.** HubSpot puts no internal name in the
-page for those two cards, only the label. So the label is matched against your portal's
-property list, which HubSpot's own page already fetched while loading. The extension reads
-that reply rather than asking for it, and only if you have the setting switched on.
+**Contact profile, Data highlights, and Property history work differently.** HubSpot puts no
+internal name in the page for those, only the label. So the label is matched against your
+portal's property list, which HubSpot's own page already fetched while loading. The extension
+reads that reply rather than asking for it, and only if you have the setting switched on.
 
 A label matching no property, or matching two, leaves the row unannotated. That is the same
 rule as everywhere else here: a blank is fine, a wrong name is not.
 
-**Association cards are still skipped**, because the properties they show belong to the
-associated record rather than the one you are looking at.
+Property history is where you will notice that most, and it is working as intended. Many
+portals have two properties both labelled "Last Modified Date", so every row showing one of
+them is ambiguous and gets no name. A history that is annotated in patches is the rule doing
+its job, not the feature failing.
 
-**The contact owner field is skipped** in the Key information card. Its control renders
+The two permanent gaps: **association cards are skipped**, because the properties they show
+belong to the associated record rather than the one you are looking at.
+
+And **the contact owner field is skipped** in the Key information card. Its control renders
 differently from every other field there and carries the name only once, and one unconfirmed
 copy is not enough on a surface where the surrounding markup would let a wrong guess through.
 
@@ -348,9 +357,10 @@ pointing at documents.
   is still v2.
 - The API name annotation reads HubSpot's own markup, which carries no stability promise. If
   HubSpot changes it the names stop appearing. That is the intended failure: the annotation
-  is withdrawn rather than guessed at. On the two record-page cards that put no name in the
-  markup at all, it reads the property list HubSpot's page already fetched, and the same
-  posture applies: a label matching no property, or two, leaves the row blank.
+  is withdrawn rather than guessed at. On the record-page surfaces that put no name in the
+  markup at all (two sidebar cards and the Property history window), it reads the property
+  lists HubSpot's page already fetched, and the same posture applies: a label matching no
+  property, or two, leaves the row blank.
 - No dirty detection. The popup shows a capture timestamp and a Refresh button and claims
   nothing about currency. The only candidate signal (`allOutputs`) has untested coverage,
   and a dirty flag with holes is worse than none.

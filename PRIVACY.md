@@ -6,22 +6,26 @@ Last updated: 2026-08-04. Applies to the Portal Peeker Chrome extension, all ver
 
 Portal Peeker reads the JSON that HubSpot's workflow editor exchanges with HubSpot's own
 API, holds it in the memory of the tab you are looking at, and shows you what is in it. If you
-switch on the API names setting, it also reads your portal's property configuration from a
-response HubSpot's own record page already fetched. It does not send any of that anywhere. There is no server, no account, no telemetry, and no
+switch on the API names setting, it also reads your portal's property configuration from
+responses HubSpot's own record page already fetched. It does not send any of that anywhere. There is no server, no account, no telemetry, and no
 analytics. The developer cannot see your workflows, and there is no mechanism by which they
 could.
 
 ## What Portal Peeker reads
 
-It runs on three kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workflows/*`,
-`*://*.hubspot.com/property-settings/*`, and `*://*.hubspot.com/contacts/*`. What it does on
-each is different, and two of them involve reading a response.
+It runs on four kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workflows/*`,
+`*://*.hubspot.com/property-settings/*`, `*://*.hubspot.com/contacts/*`, and
+`*://*.hubspot.com/object-builder/*`, which is the frame HubSpot itself draws the create
+record dialog in. What it does on each is different, and two of them involve reading a
+response. On the property settings page and in the create record dialog it reads only what
+is already in the page's own markup.
 
 `*://*.hubspot.com/contacts/*` is broader than the pages the extension actually annotates,
 which are CRM record pages. HubSpot opens a record from a list without reloading the page, and
 a narrower pattern would simply fail to load when you got there. On any other page under that
 path, including every list and index view, the extension checks the address, finds no record,
-and does nothing further.
+and does nothing further. The same applies under `*://*.hubspot.com/object-builder/*`: if no
+create dialog is on screen, the script finds nothing to read and does nothing.
 
 On pages matching `*://*.hubspot.com/workflows/*` it observes two requests that HubSpot's
 editor makes to HubSpot:
@@ -39,24 +43,27 @@ task bodies, and the numeric HubSpot user IDs of people the workflow refers to. 
 Peeker treats all of it as opaque text.
 
 On CRM record pages under `*://*.hubspot.com/contacts/*`, and **only if you have switched on
-Show internal API names**, it observes one further request that HubSpot itself makes:
+Show internal API names**, it observes one further kind of request that HubSpot itself makes:
 
 - `GET /api/properties/v4/groups/{objectTypeId}/properties`, which the page issues while it
-  loads.
+  loads, once for each type of object it needs. A deal record, for example, also fetches the
+  list for its line items, and the extension keeps each reply under the object type it
+  belongs to so one type's labels are never used to resolve another's.
 
-That response is your portal's **property configuration**: the internal name, label and type
-of each property on that object. It is not record data. It contains no contact, company or
-deal values, and nothing about the person whose record you are looking at.
+Those responses are your portal's **property configuration**: the internal name, label and
+type of each property on that object type. They are not record data. They contain no contact,
+company or deal values, and nothing about the person whose record you are looking at.
 
 Two things about it are worth stating precisely, because they are the reason it is acceptable
 at all. **Portal Peeker does not request it.** HubSpot's own page does, to draw the page you
-are already looking at, and the extension reads the reply. And **it is only read if you asked
-for the feature.** With the setting off, which is how it ships, the extension never asks for
-that response and never receives it.
+are already looking at, and the extension reads the replies. And **they are only read if you
+asked for the feature.** With the setting off, which is how it ships, the extension never asks
+for those responses and never receives them.
 
-It is used for one thing: two cards on a record page display a property's label without its
-internal name anywhere in the page, so the label is looked up against that list. The result is
-held in memory for as long as the tab is open and is never written anywhere.
+They are used for one thing: three places on a record page display a property's label without
+its internal name anywhere in the page (the "Contact profile" card, the "Data highlights"
+card, and the Property history window), so the label is looked up against that list. The
+result is held in memory for as long as the tab is open and is never written anywhere.
 
 ## Where that data lives
 
@@ -128,21 +135,23 @@ and it has no access to your browsing history, bookmarks, downloads, or other ta
 The build pins that list to exactly `["storage"]` and fails on anything else, including
 `optional_permissions`, which would be a way to widen the grant after you had checked it.
 
-## Showing API names on property settings and record pages
+## Showing API names on property settings, record pages, and the create dialog
 
-If you turn on **Show internal API names**, then on `*://*.hubspot.com/property-settings/*`
-and on CRM record pages under `*://*.hubspot.com/contacts/*`, Portal Peeker adds each
-property's internal name underneath its label.
+If you turn on **Show internal API names**, then on `*://*.hubspot.com/property-settings/*`,
+on CRM record pages under `*://*.hubspot.com/contacts/*`, and in the create record dialog
+(which HubSpot draws in its own frame under `*://*.hubspot.com/object-builder/*`), Portal
+Peeker adds each property's internal name underneath its label.
 
-**Portal Peeker makes no request of its own on either page.** For most properties the name is
-already on the page: HubSpot renders it into the page's own HTML attributes, and the extension
-reads what is in front of you and displays it more legibly. Nothing is stored or transmitted,
-and the only thing saved anywhere is whether the checkbox is ticked.
+**Portal Peeker makes no request of its own on any of these pages.** For most properties the
+name is already on the page: HubSpot renders it into the page's own HTML attributes, and the
+extension reads what is in front of you and displays it more legibly. The create record
+dialog is read entirely this way. Nothing is stored or transmitted, and the only thing saved
+anywhere is whether the checkbox is ticked.
 
-Two cards on a record page, "Contact profile" and "Data highlights", show a property's label
-and put its internal name nowhere in the page. For those, and only when this setting is on,
-the label is matched against the property list HubSpot's own page already fetched, as
-described under "What Portal Peeker reads" above. That list is portal configuration, not
+Three places on a record page show a property's label and put its internal name nowhere in the
+page: the "Contact profile" card, the "Data highlights" card, and the Property history window.
+For those, and only when this setting is on, the label is matched against the property list
+HubSpot's own page already fetched, as described under "What Portal Peeker reads" above. That list is portal configuration, not
 record data, and it is held in memory only until the tab closes.
 
 The extension reads property names, property labels and the record's object type. It does not
