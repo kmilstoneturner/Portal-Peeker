@@ -44,13 +44,35 @@
 //
 // WHAT CANNOT BE DONE, AND WHY IT IS NOT LISTED BELOW
 //
-// The Contact profile card (data-card-type="PROPERTIES_LIST") renders its rows
-// as [data-test-id="crm-property-list-item"] with the internal name nowhere in
-// the DOM. Every attribute on every row was enumerated on a live record: there
-// are per-render counters (FormControl18) and the human label, and nothing else.
-// It is not in this table because it cannot be, not because nobody got to it.
-// Association cards are absent for a different reason: their property ids belong
-// to the ASSOCIATED object, not the record on screen.
+// Two card types render properties and emit no internal name anywhere:
+//
+//   PROPERTIES_LIST  ("Contact profile")  rows are [crm-property-list-item]
+//   DATA_HIGHLIGHTS  ("Data highlights")  rows are [crm-data-highlights-item]
+//
+// The pattern is consistent. Where the row id is GENERIC rather than carrying
+// the name, the name is absent from the card entirely: what is left is a
+// per-render counter (FormControl22, FormControl-label23) and the human label.
+// PROPERTIES_LIST is the sharper case, because its rows have the same form
+// control shell as the Key information card, right down to the hover wrapper.
+// The only difference is the value span, which carries property-input-{name}
+// there and nothing at all here.
+//
+// Checked three ways on a live record before concluding: every attribute on
+// every row enumerated, inline scripts searched for bootstrapped card config
+// (none), and all 245 window globals searched for property metadata (none).
+//
+// The names do exist, in two responses the page already fetches:
+//
+//   /api/crm-record-cards/v4/container-views/get-view   card -> ordered names
+//   /api/properties/v4/groups/{objectTypeId}/properties  name -> label
+//
+// Reading those is ADR-009 decision 1's escape hatch. It would work, and it was
+// declined: it makes the overlay a consumer of network responses for the first
+// time, which is a different extension than this one. So these cards are not in
+// the table because they cannot be, not because nobody got to them.
+//
+// Association cards are absent for a third reason: their property ids are real
+// but belong to the ASSOCIATED object rather than the record on screen.
 //
 // Everything is exported inline. A trailing `export { ... }` block is not
 // bundlable: see the note in test-id.js.

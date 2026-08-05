@@ -80,9 +80,14 @@ confidence is skipped and the rest of the page is still annotated.
 
 That rule costs coverage, deliberately, and there are two gaps worth naming.
 
-**The Contact profile card is not annotated at all.** HubSpot does not put the internal name
-in the page for that card. There is no attribute carrying it, only the label you can already
-see, so there is nothing to read. This is a limit of the approach, not a to-do.
+**Two cards are not annotated at all: Contact profile, and Data highlights.** HubSpot does not
+put the internal name in the page for either. There is no attribute carrying it, only the
+label you can already see, so there is nothing to read. Association cards are skipped too,
+because the properties they show belong to the associated record rather than the one you are
+looking at.
+
+These are limits of the approach rather than things left undone. Portal Peeker reads what is
+already on your screen, and for those cards the name is not on it.
 
 **The contact owner field is skipped** in the Key information card. Its control renders
 differently from every other field there and carries the name only once, and one unconfirmed
