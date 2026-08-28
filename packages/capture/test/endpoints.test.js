@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { classifyUrl, hybridUrl, idsFromPageUrl } from '../src/endpoints.js';
+import { classifyUrl, hybridUrl, inbounddbListUrl, idsFromPageUrl } from '../src/endpoints.js';
 
 const PAGE = 'https://app.hubspot.com/workflows/12345678/platform/flow/1000000001/edit';
+const LIST_PAGE = 'https://app.hubspot.com/contacts/12345678/objectLists/4242/filters';
 
-describe('classifyUrl', () => {
+describe('classifyUrl: workflows', () => {
   it('matches the editor-load GET and pulls the flow ID from the path', () => {
     const hit = classifyUrl('/api/automationplatform/v1/hybrid/1000000001?portalId=12345678', PAGE);
     expect(hit.kind).toBe('load');
+    expect(hit.domain).toBe('flow');
     expect(hit.flowId).toBe('1000000001');
+    expect(hit.listId).toBeNull();
   });
 
   it('matches the save POST, which has no flow ID in the path', () => {
@@ -16,6 +19,7 @@ describe('classifyUrl', () => {
       PAGE,
     );
     expect(hit.kind).toBe('save');
+    expect(hit.domain).toBe('flow');
     expect(hit.flowId).toBeNull();
   });
 
@@ -46,6 +50,51 @@ describe('classifyUrl', () => {
   });
 });
 
+describe('classifyUrl: segments (lists)', () => {
+  it('matches the definition GET and pulls the list ID from the path', () => {
+    // The request segments-ui makes when a list opens, observed August 2026,
+    // on a regional app origin.
+    const hit = classifyUrl(
+      'https://app-na2.hubspot.com/api/inbounddb-lists/v1/lists/4242?portalId=12345678&clienttimeout=14000&hs_static_app=segments-ui',
+      LIST_PAGE,
+    );
+    expect(hit.kind).toBe('load');
+    expect(hit.domain).toBe('list');
+    expect(hit.listId).toBe('4242');
+    expect(hit.flowId).toBeNull();
+  });
+
+  it('classifies a write to the same path as a save', () => {
+    // One path serves reads and writes, so the method is the discriminator.
+    for (const method of ['PUT', 'put', 'POST', 'PATCH']) {
+      const hit = classifyUrl('/api/inbounddb-lists/v1/lists/4242', LIST_PAGE, undefined, method);
+      expect(hit.kind, method).toBe('save');
+      expect(hit.domain, method).toBe('list');
+      expect(hit.listId, method).toBe('4242');
+    }
+    expect(classifyUrl('/api/inbounddb-lists/v1/lists/4242', LIST_PAGE, undefined, 'GET').kind).toBe('load');
+  });
+
+  it('ignores every observed subresource and sibling on the same service', () => {
+    // All four fired alongside the definition GET when a list opened. None of
+    // them is the definition, and capturing any of them would replace it.
+    for (const url of [
+      // the hydration batch for lists the filters refer to; its body is an array
+      '/api/inbounddb-lists/v1/lists/getBatch?portalId=12345678&clienttimeout=14000',
+      // the suppression subresource of the open list
+      '/api/inbounddb-lists/v1/lists/4242/suppression?portalId=12345678',
+      // membership counts
+      '/api/inbounddb-lists/v1/list-membership-search/list/4242/3/current-state',
+      // the grid's saved-view configuration
+      '/api/sales/v4/views/0-1/all?namespace=LISTS&portalId=12345678',
+      // legacy-id mapping lives one path segment deeper and uses another id space
+      '/api/inbounddb-lists/v1/lists/771000001/ilsMapping',
+    ]) {
+      expect(classifyUrl(url, LIST_PAGE), url).toBeNull();
+    }
+  });
+});
+
 describe('hybridUrl', () => {
   const url = new URL(hybridUrl('https://app.hubspot.com', '1000000001', '12345678'));
 
@@ -65,12 +114,37 @@ describe('hybridUrl', () => {
   });
 });
 
-describe('idsFromPageUrl', () => {
+describe('inbounddbListUrl', () => {
+  const url = new URL(inbounddbListUrl('https://app-na2.hubspot.com', '4242', '12345678'));
+
+  it('targets the definition GET for the list, on the page own origin', () => {
+    expect(url.origin).toBe('https://app-na2.hubspot.com');
+    expect(url.pathname).toBe('/api/inbounddb-lists/v1/lists/4242');
+  });
+
+  it('sends portalId and the observed clienttimeout', () => {
+    expect(url.searchParams.get('portalId')).toBe('12345678');
+    expect(url.searchParams.get('clienttimeout')).toBe('14000');
+  });
+
+  it('omits the telemetry version params, and its own URL classifies as a list load', () => {
+    expect(url.searchParams.get('hs_static_app')).toBeNull();
+    expect(url.searchParams.get('hs_static_app_version')).toBeNull();
+    // The refetch must land on the same pattern the capture uses, or a refresh
+    // could fetch something the interceptor would not have kept.
+    expect(classifyUrl(url.href, LIST_PAGE).domain).toBe('list');
+  });
+});
+
+describe('idsFromPageUrl: workflows', () => {
   it('reads portal and flow out of the editor URL', () => {
     expect(idsFromPageUrl(PAGE)).toEqual({
+      app: 'workflows',
       portalId: '12345678',
       flowId: '1000000001',
       legacyId: null,
+      listId: null,
+      legacyListId: null,
     });
   });
 
@@ -82,11 +156,72 @@ describe('idsFromPageUrl', () => {
 
   it('returns nulls on the workflow list page rather than guessing', () => {
     const ids = idsFromPageUrl('https://app.hubspot.com/workflows/12345678');
+    expect(ids.app).toBe('workflows');
     expect(ids.portalId).toBe('12345678');
     expect(ids.flowId).toBeNull();
   });
 
   it('survives a URL it cannot parse', () => {
-    expect(idsFromPageUrl('nonsense')).toEqual({ portalId: null, flowId: null, legacyId: null });
+    expect(idsFromPageUrl('nonsense')).toEqual({
+      app: null,
+      portalId: null,
+      flowId: null,
+      legacyId: null,
+      listId: null,
+      legacyListId: null,
+    });
+  });
+});
+
+describe('idsFromPageUrl: segments (lists)', () => {
+  it('reads portal and list out of the details and filters pages', () => {
+    for (const href of [
+      'https://app.hubspot.com/contacts/12345678/objectLists/4242',
+      'https://app.hubspot.com/contacts/12345678/objectLists/4242/filters',
+      'https://app-na2.hubspot.com/contacts/12345678/objectLists/4242/performance',
+    ]) {
+      const ids = idsFromPageUrl(href);
+      expect(ids.app, href).toBe('contacts');
+      expect(ids.portalId, href).toBe('12345678');
+      expect(ids.listId, href).toBe('4242');
+      expect(ids.flowId, href).toBeNull();
+    }
+  });
+
+  it('does not pass a legacy list ID off as an ILS list ID', () => {
+    // /contacts/{portal}/lists/{id} carries the legacy id space, like the
+    // legacy workflow URLs. The staleness guard must never compare it against
+    // a captured ILS listId.
+    const ids = idsFromPageUrl('https://app.hubspot.com/contacts/12345678/lists/771000001');
+    expect(ids.listId).toBeNull();
+    expect(ids.legacyListId).toBe('771000001');
+  });
+
+  it('returns no list id on the lists index page rather than guessing', () => {
+    const ids = idsFromPageUrl('https://app.hubspot.com/contacts/12345678/objectLists');
+    expect(ids.app).toBe('contacts');
+    expect(ids.listId).toBeNull();
+  });
+
+  it('reads only the portal from the newer lists and segments roots', () => {
+    // Two bare numbers in a row would be a guess about which one is the list.
+    // A wrong guess would hide a valid capture, so only the portal is read.
+    for (const href of [
+      'https://app.hubspot.com/lists/12345678',
+      'https://app.hubspot.com/segments/12345678/4242',
+    ]) {
+      const ids = idsFromPageUrl(href);
+      expect(ids.portalId, href).toBe('12345678');
+      expect(ids.listId, href).toBeNull();
+    }
+    expect(idsFromPageUrl('https://app.hubspot.com/lists/12345678').app).toBe('lists');
+    expect(idsFromPageUrl('https://app.hubspot.com/segments/12345678/4242').app).toBe('segments');
+  });
+
+  it('does not read a record page as a list page', () => {
+    const ids = idsFromPageUrl('https://app.hubspot.com/contacts/12345678/record/0-1/4242');
+    expect(ids.app).toBe('contacts');
+    expect(ids.listId).toBeNull();
+    expect(ids.flowId).toBeNull();
   });
 });

@@ -396,6 +396,13 @@ export function trim(rawText, options = {}) {
   });
 
   const summary = summarize(rawText);
+  if (summary.domain === 'list') {
+    // Every rule in this file is about workflow structure. A segment capture
+    // is already mostly filter logic, so there is nothing here to trim it to,
+    // and pretending otherwise would mean shipping untested rules against a
+    // different schema.
+    return refuse('trimming applies to workflow captures only');
+  }
   if (!summary.recognized) {
     // No partial trims. A half-trimmed payload looks complete while missing
     // whatever the rules never reached, which is worse than not trimming.

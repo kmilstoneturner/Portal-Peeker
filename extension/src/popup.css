@@ -153,6 +153,23 @@ body {
   font-size: 12px;
 }
 
+/* The empty state is centered text; the shared .actions padding is tuned for
+   the capture card and sits too wide here. The button keeps its own width
+   rather than flexing to the full column so it reads as an offer, not a form. */
+.empty-actions {
+  justify-content: center;
+  padding: 14px 14px 0;
+}
+
+.empty-actions .btn {
+  flex: 0 1 auto;
+  padding: 7px 18px;
+}
+
+.empty-actions .btn[hidden] {
+  display: none;
+}
+
 .rows {
   margin: 0;
   padding: 6px 14px 2px;
@@ -163,6 +180,12 @@ body {
   gap: 10px;
   align-items: baseline;
   padding: 5px 0;
+}
+
+/* display: flex above beats the UA stylesheet's [hidden] rule, so the two
+   segment-only rows need this stated explicitly or hidden would do nothing. */
+.row[hidden] {
+  display: none;
 }
 
 .row dt {

@@ -56,18 +56,37 @@
 
         <div class="page" id="page-home" role="tabpanel" aria-labelledby="nav-home">
           <section id="empty" class="empty" hidden>
-            <p class="empty-title">Open a HubSpot workflow to capture it.</p>
+            <p class="empty-title">Open a HubSpot workflow or segment to capture it.</p>
             <p class="empty-hint" id="empty-hint">
               Already on one? Reload the page. Portal Peeker only sees requests made after it loads.
             </p>
+            <!--
+              Shown only when the page URL names a workflow or segment AND the
+              bridge answered, so the button is never an offer the content
+              script cannot honor. It sends the same message as Refresh: one
+              user-initiated GET to HubSpot's own API, nothing else.
+            -->
+            <div class="actions empty-actions">
+              <button id="fetch" type="button" class="btn primary" hidden>Fetch from HubSpot</button>
+            </div>
+            <p class="status" id="empty-status" role="status" aria-live="polite"></p>
           </section>
 
           <section id="capture" hidden>
             <dl class="rows">
-              <div class="row"><dt>Flow</dt><dd id="f-name">not found</dd></div>
-              <div class="row"><dt>Flow ID</dt><dd id="f-flow" class="mono">not found</dd></div>
+              <!--
+                The first, second, and Version labels change with what was
+                captured (Flow/Flow ID for a workflow, Segment/List ID for a
+                list), so those dt nodes carry ids and popup.js owns their
+                text. The two rows below Version exist only for segments and
+                stay hidden otherwise.
+              -->
+              <div class="row"><dt id="d-name">Flow</dt><dd id="f-name">not found</dd></div>
+              <div class="row"><dt id="d-id">Flow ID</dt><dd id="f-flow" class="mono">not found</dd></div>
               <div class="row"><dt>Portal ID</dt><dd id="f-portal" class="mono">not found</dd></div>
-              <div class="row"><dt>Version</dt><dd id="f-version" class="mono">not found</dd></div>
+              <div class="row"><dt id="d-version">Version</dt><dd id="f-version" class="mono">not found</dd></div>
+              <div class="row" id="row-type" hidden><dt>Type</dt><dd id="f-type">not found</dd></div>
+              <div class="row" id="row-filters" hidden><dt>Filters</dt><dd id="f-filters" class="mono">not found</dd></div>
               <div class="row"><dt>Captured</dt><dd id="f-when">not found</dd></div>
               <div class="row"><dt>Size</dt><dd id="f-size" class="mono">not found</dd></div>
               <div class="row"><dt>Est. Tokens</dt><dd id="f-tokens" class="mono">not found</dd></div>

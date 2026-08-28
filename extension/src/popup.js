@@ -20,7 +20,8 @@
 //
 // Nothing about a capture is persisted in either.
 
-import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND } from './lib/protocol.js';
+import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND, CAPTURE_DOMAIN } from './lib/protocol.js';
+import { idsFromPageUrl } from './lib/endpoints.js';
 import { summarize } from './lib/summary.js';
 import { trim, estimateTokens } from './lib/trim.js';
 import { uiNumbersFromText, addUiNumbers } from './lib/ui-numbers.js';
@@ -33,12 +34,21 @@ const el = (id) => document.getElementById(id);
 const view = {
   empty: el('empty'),
   emptyHint: el('empty-hint'),
+  emptyStatus: el('empty-status'),
+  fetch: el('fetch'),
   capture: el('capture'),
   kind: el('kind'),
+  nameLabel: el('d-name'),
+  idLabel: el('d-id'),
+  versionLabel: el('d-version'),
   name: el('f-name'),
   flow: el('f-flow'),
   portal: el('f-portal'),
   version: el('f-version'),
+  typeRow: el('row-type'),
+  type: el('f-type'),
+  filtersRow: el('row-filters'),
+  filters: el('f-filters'),
   when: el('f-when'),
   size: el('f-size'),
   tokens: el('f-tokens'),
@@ -132,6 +142,33 @@ const CAPTURED_FROM = {
   [CAPTURE_KIND.REFRESH]: 'refresh',
 };
 
+// The rows above Portal ID name what was captured. One table per domain, so a
+// segment is never presented under a "Flow" label or vice versa.
+const ROW_LABELS = {
+  [CAPTURE_DOMAIN.FLOW]: { name: 'Flow', id: 'Flow ID', version: 'Version' },
+  [CAPTURE_DOMAIN.LIST]: { name: 'Segment', id: 'List ID', version: 'Version' },
+};
+
+/**
+ * processingType in HubSpot's own UI vocabulary. DYNAMIC is an active list;
+ * SNAPSHOT and MANUAL are the two ways a list ends up static. The raw value
+ * stays visible because it is what the JSON says.
+ */
+function processingTypeLabel(processingType) {
+  if (typeof processingType !== 'string' || processingType === '') return null;
+  const word =
+    processingType === 'DYNAMIC' ? 'active' : processingType === 'SNAPSHOT' || processingType === 'MANUAL' ? 'static' : null;
+  return word ? `${word} (${processingType})` : processingType;
+}
+
+/** Which domain a snapshot belongs to: the bridge's URL-derived word wins,
+ * the parsed body fills in for a bridge from before segments existed. */
+function domainOf(source, summary) {
+  if (source && source.domain === CAPTURE_DOMAIN.LIST) return CAPTURE_DOMAIN.LIST;
+  if (source && source.domain === CAPTURE_DOMAIN.FLOW) return CAPTURE_DOMAIN.FLOW;
+  return summary && summary.domain === 'list' ? CAPTURE_DOMAIN.LIST : CAPTURE_DOMAIN.FLOW;
+}
+
 function manifestVersion() {
   try {
     return chrome.runtime.getManifest().version;
@@ -188,17 +225,34 @@ const contextWanted = () => view.context.checked && !view.context.disabled;
  * at any of them. Whatever is unknown is passed as null and left out.
  */
 function contextMeta(summary, source, applied) {
-  return {
+  const shared = {
     capturedAtIso: Number.isFinite(source.capturedAt)
       ? new Date(source.capturedAt).toISOString()
       : null,
     capturedFrom: CAPTURED_FROM[source.kind] || null,
-    flowId: summary.flowId || source.flowId || null,
-    flowName: summary.name,
     portalId: summary.portalId,
-    flowVersion: summary.version,
     extensionVersion: manifestVersion(),
     modifications: applied,
+  };
+
+  if (domainOf(source, summary) === CAPTURE_DOMAIN.LIST) {
+    return {
+      ...shared,
+      domain: 'list',
+      listId: summary.listId || source.listId || null,
+      listName: summary.name,
+      listVersion: summary.version,
+      processingType: summary.processingType,
+      objectTypeId: summary.objectTypeId,
+    };
+  }
+
+  return {
+    ...shared,
+    domain: 'flow',
+    flowId: summary.flowId || source.flowId || null,
+    flowName: summary.name,
+    flowVersion: summary.version,
   };
 }
 
@@ -277,12 +331,14 @@ function buildExport(raw, source, cached = false) {
 
 // ---------------------------------------------------------------- render
 
-function showEmpty(hint) {
+function showEmpty(hint, { canFetch = false } = {}) {
   view.capture.hidden = true;
   hasKind = false;
   view.kind.hidden = true;
   view.empty.hidden = false;
   if (hint) view.emptyHint.textContent = hint;
+  view.fetch.hidden = !canFetch;
+  sayIn(view.emptyStatus, '');
 }
 
 function renderSizes() {
@@ -316,31 +372,43 @@ function renderSizes() {
   setDelta(view.tokens, `~${num(rawTokens)}`, `~${num(estimateTokens(built.text))}`);
 }
 
-function renderOptions(trimmable, reason, numbersCheck, contextCheck) {
-  view.trim.disabled = !trimmable;
-  view.trim.parentElement.classList.toggle('is-disabled', !trimmable);
-  if (!trimmable) view.trim.checked = false;
+function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck) {
+  // Trimming, stripping, and numbering are workflow features: their rules and
+  // their walker only know flow structure. On a segment capture they are
+  // withdrawn as not-applicable rather than as a failure, and the title says
+  // which one it is.
+  const isList = domain === CAPTURE_DOMAIN.LIST;
+  const WORKFLOW_ONLY = 'Workflow captures only';
+
+  view.trim.disabled = !trimmable || isList;
+  view.trim.parentElement.classList.toggle('is-disabled', view.trim.disabled);
+  view.trim.parentElement.title = isList ? WORKFLOW_ONLY : '';
+  if (view.trim.disabled) view.trim.checked = false;
 
   // Stripping HTML rewrites values, which only a trim's output can absorb, so
   // it is the trim's sub-option and the only one.
-  const onTopOfTrim = trimmable && view.trim.checked;
+  const onTopOfTrim = !view.trim.disabled && view.trim.checked;
   view.strip.disabled = !onTopOfTrim;
   view.strip.parentElement.classList.toggle('is-disabled', !onTopOfTrim);
+  view.strip.parentElement.title = isList ? WORKFLOW_ONLY : '';
 
   // Numbering stands on its own: it inserts text and rewrites nothing, so it
   // works on raw bytes. It is withdrawn only when the graph has a shape the
   // walker does not recognize, and then entirely rather than partially: a file
   // where some cards carry numbers and some do not looks complete while lying.
-  const numbersOk = Boolean(numbersCheck && numbersCheck.ok);
+  const numbersOk = Boolean(numbersCheck && numbersCheck.ok) && !isList;
   view.numbers.disabled = !numbersOk;
   view.numbers.parentElement.classList.toggle('is-disabled', !numbersOk);
   view.numbers.parentElement.title = numbersOk
     ? ''
-    : `Editor numbers unavailable: ${numbersCheck ? numbersCheck.reason : 'no capture'}`;
+    : isList
+      ? WORKFLOW_ONLY
+      : `Editor numbers unavailable: ${numbersCheck ? numbersCheck.reason : 'no capture'}`;
 
   // The context block rides on nothing: it is one inserted key, so it works on
-  // a trimmed export and on raw bytes alike. It is withdrawn only when the
-  // payload cannot carry it, which is a fact about the payload, not the trim.
+  // a trimmed export and on raw bytes alike, for a segment as for a workflow.
+  // It is withdrawn only when the payload cannot carry it, which is a fact
+  // about the payload, not the trim.
   const contextOk = Boolean(contextCheck && contextCheck.ok);
   view.context.disabled = !contextOk;
   view.context.parentElement.classList.toggle('is-disabled', !contextOk);
@@ -359,19 +427,48 @@ function render(status) {
   view.kind.textContent = KIND_LABEL[status.kind] || 'captured';
 
   const summary = summaryFor(status.raw);
+  const domain = domainOf(status, summary);
+  const labels = ROW_LABELS[domain];
+
+  view.nameLabel.textContent = labels.name;
+  view.idLabel.textContent = labels.id;
+  view.versionLabel.textContent = labels.version;
 
   view.name.textContent = summary.name || 'Name not found in payload';
-  // The bridge knows the flow ID from the URL even when the body will not
-  // parse, so prefer whichever is present.
-  view.flow.textContent = summary.flowId || status.flowId || 'not found';
+  // The bridge knows the flow or list ID from the URL even when the body will
+  // not parse, so prefer whichever is present.
+  view.flow.textContent =
+    domain === CAPTURE_DOMAIN.LIST
+      ? summary.listId || status.listId || 'not found'
+      : summary.flowId || status.flowId || 'not found';
   view.portal.textContent = summary.portalId || 'not found';
   view.version.textContent = summary.version != null ? String(summary.version) : 'not found';
   view.when.textContent = formatWhen(status.capturedAt);
 
-  const trimCheck = trimFor(status.raw, view.strip.checked);
-  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(status.raw), contextCheckFor(status.raw));
+  // The two segment-only rows. Filters is the row this feature exists for:
+  // the number of conditions the segment checks, counted from the
+  // filterBranch tree. A static list with no filterBranch honestly says none.
+  const isList = domain === CAPTURE_DOMAIN.LIST;
+  view.typeRow.hidden = !isList;
+  view.filtersRow.hidden = !isList;
+  if (isList) {
+    view.type.textContent = processingTypeLabel(summary.processingType) || 'not found';
+    view.filters.textContent =
+      summary.filterCount != null
+        ? num(summary.filterCount)
+        : summary.processingType && summary.processingType !== 'DYNAMIC'
+          ? 'none'
+          : 'not found';
+  }
 
-  if (summary.recognized && trimCheck.ok) {
+  const trimCheck = trimFor(status.raw, view.strip.checked);
+  renderOptions(domain, trimCheck.ok, trimCheck.reason, numbersFor(status.raw), contextCheckFor(status.raw));
+
+  // For a workflow, an unavailable trim is part of the degraded story. For a
+  // segment it is the normal state (trimming is a workflow feature), so only
+  // the parser's own verdict decides the banner there.
+  const healthy = isList ? summary.recognized : summary.recognized && trimCheck.ok;
+  if (healthy) {
     view.degraded.hidden = true;
   } else {
     view.degraded.hidden = false;
@@ -380,7 +477,9 @@ function render(status) {
     // complete while missing whatever the rules never reached, so it is
     // withdrawn rather than attempted.
     const detail = summary.recognized ? trimCheck.reason : summary.reason;
-    view.degraded.textContent = `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes. Trimming is unavailable for this payload.`;
+    view.degraded.textContent = isList
+      ? `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes.`
+      : `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes. Trimming is unavailable for this payload.`;
   }
 
   renderSizes();
@@ -390,9 +489,15 @@ function render(status) {
   view.refresh.disabled = false;
 }
 
+function sayIn(node, text, isError = false) {
+  node.textContent = text;
+  node.classList.toggle('error', Boolean(isError));
+}
+
+// The capture card's status line. The empty state has its own (empty-status),
+// because the two sections are never on screen together.
 function say(text, isError = false) {
-  view.status.textContent = text;
-  view.status.classList.toggle('error', Boolean(isError));
+  sayIn(view.status, text, isError);
 }
 
 // ---------------------------------------------------------------- messaging
@@ -411,19 +516,38 @@ async function load() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabId = tab ? tab.id : null;
 
-  const onWorkflowPage = typeof tab?.url === 'string' && /:\/\/[^/]*hubspot\.com\/workflows\//.test(tab.url);
+  const onHubSpot = typeof tab?.url === 'string' && /:\/\/[^/]*hubspot\.com\//.test(tab.url);
+  const pageIds = onHubSpot ? idsFromPageUrl(tab.url) : idsFromPageUrl('');
+  const subject = pageIds.flowId ? 'workflow' : pageIds.listId ? 'segment' : null;
 
   const status = await ask(POPUP_MSG.STATUS);
 
   if (!status || !status.hasCapture) {
     snapshot = null;
     variants = new Map();
+
+    if (!status) {
+      // No receiver: the tab predates the install, or the page is not one the
+      // capture scripts run on. Fetching is not on offer, because there is
+      // nothing on the other end to do it.
+      showEmpty(
+        subject || pageIds.app
+          ? 'Reload this page. Portal Peeker only sees requests made after it loads.'
+          : 'Already on one? Reload the page. Portal Peeker only sees requests made after it loads.',
+      );
+      return;
+    }
+
+    // The bridge is listening but saw nothing. When the URL names a workflow
+    // or a segment, the bridge can fetch it on request, which beats asking the
+    // user to reload and hope.
     showEmpty(
-      onWorkflowPage
-        ? status
+      subject
+        ? `Nothing captured for this ${subject} yet. Fetch it from HubSpot, or reload the page.`
+        : pageIds.app === 'workflows'
           ? 'Nothing captured for this flow yet. Reload the page, or open the workflow again.'
-          : 'Reload this page. Portal Peeker only sees requests made after it loads.'
-        : 'Already on one? Reload the page. Portal Peeker only sees requests made after it loads.',
+          : 'Nothing captured yet. Open a workflow or a segment and reload the page.',
+      { canFetch: Boolean(subject) },
     );
     return;
   }
@@ -463,7 +587,13 @@ function onOptionChange() {
   persistOptions();
   if (!snapshot) return;
   const trimCheck = trimFor(snapshot.raw, view.strip.checked);
-  renderOptions(trimCheck.ok, trimCheck.reason, numbersFor(snapshot.raw), contextCheckFor(snapshot.raw));
+  renderOptions(
+    domainOf(snapshot, summaryFor(snapshot.raw)),
+    trimCheck.ok,
+    trimCheck.reason,
+    numbersFor(snapshot.raw),
+    contextCheckFor(snapshot.raw),
+  );
   renderSizes();
   say('');
 }
@@ -696,8 +826,13 @@ view.download.addEventListener('click', async () => {
   // The suffix is the only marker that a file is not a verbatim capture. The
   // extension adds exactly two keys in band, uiNumber and _aiContext, each
   // behind its own checkbox, and a file carrying one always carries the
-  // matching suffix.
-  const name = `${localDateStamp()}-${payload.flowId || 'unknown-flow'}${output.suffix}.json`;
+  // matching suffix. Segment files carry a list- prefix on the id, because a
+  // bare number in a filename no longer says which kind of export it is.
+  const stem =
+    domainOf(payload, summaryFor(payload.raw)) === CAPTURE_DOMAIN.LIST
+      ? `list-${payload.listId || 'unknown'}`
+      : payload.flowId || 'unknown-flow';
+  const name = `${localDateStamp()}-${stem}${output.suffix}.json`;
   const url = URL.createObjectURL(new Blob([output.text], { type: 'application/json' }));
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -733,12 +868,36 @@ view.refresh.addEventListener('click', async () => {
   say('Refreshed. This is the last saved state, not unsaved edits.');
 });
 
+// The empty state's first fetch. Same bridge message as Refresh, same single
+// user-initiated GET to HubSpot; only the surrounding copy differs, because
+// here there is no previous capture to fall back to.
+view.fetch.addEventListener('click', async () => {
+  view.fetch.disabled = true;
+  sayIn(view.emptyStatus, 'Fetching from HubSpot...');
+
+  const result = await ask(POPUP_MSG.REFRESH);
+  view.fetch.disabled = false;
+
+  if (!result) {
+    sayIn(view.emptyStatus, 'The page is not responding. Reload it and try again.', true);
+    return;
+  }
+
+  if (!result.ok) {
+    sayIn(view.emptyStatus, refreshErrorText(result), true);
+    return;
+  }
+
+  await load();
+  say('Fetched. This is the last saved state, not unsaved edits.');
+});
+
 function refreshErrorText(result) {
   switch (result.error) {
     case REFRESH_ERROR.CSRF_UNREADABLE:
       return 'Could not read the csrf.app cookie. Reload the page and try again.';
-    case REFRESH_ERROR.NO_FLOW_ID:
-      return 'Could not tell which flow this is. Open the workflow editor and try again.';
+    case REFRESH_ERROR.NO_ID:
+      return 'Could not tell which workflow or segment this is. Open one and try again.';
     case REFRESH_ERROR.HTTP:
       return result.status === 401
         ? 'HubSpot returned 401. Reload the page and try again. Your previous capture is untouched.'

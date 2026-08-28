@@ -93,6 +93,9 @@ const COPIES = [
   [`${EXTENSION}/popup.js`, 'popup.js'],
   [`${EXTENSION}/service-worker.js`, 'service-worker.js'],
   [`${CAPTURE}/protocol.js`, 'lib/protocol.js'],
+  // The popup reads the page URL the same way the bridge does (whose workflow
+  // or segment is this tab on?), and two URL parsers is how they would drift.
+  [`${CAPTURE}/endpoints.js`, 'lib/endpoints.js'],
   // Same trick as protocol.js above: one source, copied for the popup's module
   // loader and concatenated into the content-script bundle. That is what stops
   // the two sides of the settings contract from drifting apart.

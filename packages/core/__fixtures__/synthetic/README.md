@@ -22,6 +22,20 @@ What the chain establishes:
   them, which is why the trim exempts empty recipient lists from its
   empty-collection rule.
 
+## `inbounddb-list-get.json`
+
+A scrubbed mirror of a real segment (list) capture: the response of
+`GET /api/inbounddb-lists/v1/lists/{listId}`, observed live from segments-ui in
+August 2026. Structure, key order, and HubSpot vocabulary are exactly as
+returned; every identifier, timestamp, uuid, name, and filter value was
+replaced.
+
+Its `filterBranch` deliberately carries one of each observed condition shape:
+a plain PROPERTY filter, an IN_LIST reference to another list, and an
+ASSOCIATION branch that carries its own operator and nests a PROPERTY filter
+for the associated object. Three leaves in total, which is what
+`countFilters` must report.
+
 ## `trim-cases.synthetic.json`
 
 A workflow that could not exist, built so that every trim rule and **every

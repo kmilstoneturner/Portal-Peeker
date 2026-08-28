@@ -26,6 +26,12 @@ const CONTEXT_KEY = '_aiContext';
 const WHAT_THIS_IS =
   'One HubSpot workflow, captured as JSON from the workflow editor by the Portal Peeker browser extension.';
 
+const WHAT_THIS_IS_LIST =
+  'One HubSpot segment (list): its definition and filter criteria, captured as JSON from the lists tool by the Portal Peeker browser extension.';
+
+const LIST_FILTERS =
+  'The filterBranch tree is the segment membership logic: filterBranches nest with filterBranchOperator (AND/OR), and each filters array holds the individual conditions.';
+
 const REVERSIBLE =
   'Portal Peeker inserted this _aiContext block as the first key of the document: delete this one key and every remaining byte is exactly what was captured or exported without it.';
 
@@ -109,12 +115,18 @@ function compact(fields) {
  * and a wrong value.
  *
  * @param {object} meta
+ * @param {'flow'|'list'} [meta.domain] what the capture is of; flow if absent
  * @param {string|null} [meta.capturedAtIso] capture time, ISO 8601
  * @param {string|null} [meta.capturedFrom] 'editor load' | 'save' | 'refresh'
  * @param {string|null} [meta.flowId]
  * @param {string|null} [meta.flowName]
- * @param {string|null} [meta.portalId]
  * @param {number|string|null} [meta.flowVersion]
+ * @param {string|null} [meta.listId]
+ * @param {string|null} [meta.listName]
+ * @param {number|string|null} [meta.listVersion]
+ * @param {string|null} [meta.processingType]
+ * @param {string|null} [meta.objectTypeId]
+ * @param {string|null} [meta.portalId]
  * @param {string|null} [meta.extensionVersion]
  * @param {object} [meta.modifications] which export options actually ran
  * @returns {object}
@@ -122,6 +134,7 @@ function compact(fields) {
 export function buildAiContext(meta = {}) {
   const source = meta && typeof meta === 'object' ? meta : {};
   const flags = source.modifications && typeof source.modifications === 'object' ? source.modifications : {};
+  const isList = source.domain === 'list';
 
   const modifications = {};
   for (const entry of MODIFICATIONS) modifications[entry.flag] = Boolean(flags[entry.flag]);
@@ -130,23 +143,38 @@ export function buildAiContext(meta = {}) {
 
   if (MODIFICATIONS.every((entry) => !modifications[entry.flag])) howToUse.push(UNMODIFIED);
   for (const entry of MODIFICATIONS) {
+    // Every current modification is a workflow option. On a segment export
+    // none of them can have run, and the absence prose is workflow guidance
+    // (actionId, editor cards), so a list block says what a list reader needs
+    // instead of explaining features that do not apply to the file.
+    if (isList && !modifications[entry.flag]) continue;
     howToUse.push(...(modifications[entry.flag] ? entry.tells : entry.tellsWhenAbsent));
   }
+  if (isList) howToUse.push(LIST_FILTERS);
 
-  const workflow = compact({
-    flowId: source.flowId,
-    name: source.flowName,
-    portalId: source.portalId,
-    version: source.flowVersion,
-  });
+  const subject = isList
+    ? compact({
+        listId: source.listId,
+        name: source.listName,
+        portalId: source.portalId,
+        version: source.listVersion,
+        processingType: source.processingType,
+        objectTypeId: source.objectTypeId,
+      })
+    : compact({
+        flowId: source.flowId,
+        name: source.flowName,
+        portalId: source.portalId,
+        version: source.flowVersion,
+      });
   const capture = compact({
     capturedAt: source.capturedAtIso,
     capturedFrom: source.capturedFrom,
   });
 
-  const block = { whatThisIs: WHAT_THIS_IS, tool: 'Portal Peeker' };
+  const block = { whatThisIs: isList ? WHAT_THIS_IS_LIST : WHAT_THIS_IS, tool: 'Portal Peeker' };
   if (source.extensionVersion != null) block.extensionVersion = source.extensionVersion;
-  if (workflow) block.workflow = workflow;
+  if (subject) block[isList ? 'list' : 'workflow'] = subject;
   if (capture) block.capture = capture;
   block.modifications = modifications;
   block.howToUse = howToUse;

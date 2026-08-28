@@ -19,9 +19,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 const dist = (name) => fileURLToPath(new URL(`../../../extension/dist/${name}`, import.meta.url));
 
 const EDITOR_URL = 'https://app.hubspot.com/workflows/12345678/platform/flow/1000000001/edit';
+const LIST_URL = 'https://app.hubspot.com/contacts/12345678/objectLists/4242/filters';
 const ORIGIN = 'https://app.hubspot.com';
 const HYBRID_GET = '/api/automationplatform/v1/hybrid/1000000001?portalId=12345678';
 const SAVE_POST = '/api/automationplatform/v1/hybrid/batch?sourceapp=WORKFLOWS_APP';
+const LIST_GET = '/api/inbounddb-lists/v1/lists/4242?portalId=12345678&clienttimeout=14000';
 
 const FLOW_BODY = JSON.stringify({
   flowId: 1000000001,
@@ -32,6 +34,16 @@ const FLOW_BODY = JSON.stringify({
   actions: { 1: { actionId: 1 } },
 });
 
+const LIST_BODY = JSON.stringify({
+  portalId: 12345678,
+  listId: 4242,
+  listVersion: 3,
+  objectTypeId: '0-1',
+  processingType: 'DYNAMIC',
+  name: 'Captured segment',
+  filterBranch: { filterBranchOperator: 'OR', filters: [], filterBranches: [] },
+});
+
 if (!existsSync(dist('capture/interceptor.js'))) {
   throw new Error('extension/dist is missing. Run: npm run build');
 }
@@ -40,13 +52,13 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const DEFAULT_COOKIE = 'hubspotutk=x; csrf.app=csrf-token-value; other=1';
 
-function harness({ cookie = DEFAULT_COOKIE } = {}) {
+function harness({ cookie = DEFAULT_COOKIE, url = EDITOR_URL } = {}) {
   const sent = [];
   let popupHandler = null;
   let deliver = null;
 
   // ---- isolated world (bridge) ----
-  const isolatedLocation = { href: EDITOR_URL, origin: ORIGIN };
+  const isolatedLocation = { href: url, origin: ORIGIN };
   const isolatedWindow = {
     addEventListener(type, fn) {
       if (type === 'message') deliver = fn;
@@ -105,7 +117,7 @@ function harness({ cookie = DEFAULT_COOKIE } = {}) {
   }
 
   const mainWindow = {
-    location: { href: EDITOR_URL, origin: ORIGIN },
+    location: { href: url, origin: ORIGIN },
     fetch: (...args) => {
       nativeCalls.push(args);
       return nativeImpl(...args);
@@ -377,6 +389,188 @@ describe('refresh', () => {
 
     expect((await h.askPopup('pp:refresh')).error).toBe('empty');
     expect((await h.askPopup('pp:status')).raw).toBe(FLOW_BODY);
+  });
+});
+
+describe('segment capture, end to end on a list page', () => {
+  let h;
+
+  beforeEach(() => {
+    h = harness({ url: LIST_URL });
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+  });
+
+  it('captures the definition GET and hands it to the popup with its domain', async () => {
+    await h.pageFetch(LIST_GET);
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.domain).toBe('list');
+    expect(status.kind).toBe('load');
+    expect(status.listId).toBe('4242');
+    expect(status.flowId).toBeNull();
+    expect(status.raw).toBe(LIST_BODY);
+
+    const payload = await h.askPopup('pp:payload');
+    expect(payload.domain).toBe('list');
+    expect(payload.listId).toBe('4242');
+  });
+
+  it('classifies a write to the same path as a save', async () => {
+    await h.pageFetch(LIST_GET, { method: 'PUT', body: LIST_BODY });
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.kind).toBe('save');
+    expect(status.domain).toBe('list');
+  });
+
+  it('ignores the subresources that load alongside the definition', async () => {
+    // All observed firing when a list opens. Capturing any of them would
+    // replace the definition with counts, views, or an array of other lists.
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/getBatch?portalId=12345678');
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/4242/suppression?portalId=12345678');
+    await h.pageFetch('/api/inbounddb-lists/v1/list-membership-search/list/4242/3/current-state');
+    await h.pageFetch('/api/sales/v4/views/0-1/all?namespace=LISTS&portalId=12345678');
+    await flush();
+
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    expect(h.sent).toEqual([]);
+  });
+
+  it('refuses a hydration fetch for a different list, before and after the subject', async () => {
+    // The page also fetches lists its filters refer to, through the same
+    // endpoint. The page URL names the subject, so only the subject lands.
+    h.setNativeFetch(async () => okResponse(JSON.stringify({ listId: 999, processingType: 'DYNAMIC' })));
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/999?portalId=12345678');
+    await flush();
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+
+    h.setNativeFetch(async () => okResponse(JSON.stringify({ listId: 999, processingType: 'DYNAMIC' })));
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/999?portalId=12345678');
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.listId).toBe('4242');
+    expect(status.raw).toBe(LIST_BODY);
+  });
+
+  it('captures through XHR as well as fetch', async () => {
+    const xhr = h.makeXhr();
+    xhr.open('GET', LIST_GET);
+    xhr.send();
+    xhr.responseText = LIST_BODY;
+    xhr.fire('load');
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.domain).toBe('list');
+  });
+});
+
+describe('a list body on a workflows page is hydration, not the subject', () => {
+  it('is refused, so it can never replace a flow capture', async () => {
+    const h = harness();
+    h.setNativeFetch(async () => okResponse(FLOW_BODY));
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.domain).toBe('flow');
+    expect(status.raw).toBe(FLOW_BODY);
+  });
+
+  it('is refused even with no flow captured yet', async () => {
+    const h = harness();
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    expect(h.sent).toEqual([]);
+  });
+});
+
+describe('segment SPA staleness guard', () => {
+  let h;
+
+  beforeEach(async () => {
+    h = harness({ url: LIST_URL });
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+  });
+
+  it('reports no capture after navigating to a different list', async () => {
+    h.isolatedLocation.href = 'https://app.hubspot.com/contacts/12345678/objectLists/999/filters';
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    expect((await h.askPopup('pp:payload')).hasCapture).toBe(false);
+  });
+
+  it('still reports the capture on a different page of the same list', async () => {
+    h.isolatedLocation.href = 'https://app.hubspot.com/contacts/12345678/objectLists/4242/performance';
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(true);
+  });
+});
+
+describe('segment refresh', () => {
+  it('refetches the exact URL the page itself used, with the CSRF header', async () => {
+    const h = harness({ url: LIST_URL });
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+
+    h.setRefresh(async () => ({ ok: true, status: 200, text: async () => LIST_BODY }));
+    const result = await h.askPopup('pp:refresh');
+    expect(result.ok).toBe(true);
+
+    const call = h.refreshCalls[0];
+    // Verbatim: that URL demonstrably works, query params and all.
+    expect(call.url).toBe(`${ORIGIN}${LIST_GET}`);
+    expect(call.init.headers['x-hubspot-csrf-hubspotapi']).toBe('csrf-token-value');
+    expect(call.init.credentials).toBe('include');
+
+    const status = await h.askPopup('pp:status');
+    expect(status.kind).toBe('refresh');
+    expect(status.domain).toBe('list');
+  });
+
+  it('constructs the definition URL from the page when nothing was captured yet', async () => {
+    // The popup's first-fetch path: the bridge is present but the load was
+    // missed, and the page URL names the list.
+    const h = harness({ url: LIST_URL });
+    h.setRefresh(async () => ({ ok: true, status: 200, text: async () => LIST_BODY }));
+
+    const result = await h.askPopup('pp:refresh');
+    expect(result.ok).toBe(true);
+
+    const url = new URL(h.refreshCalls[0].url);
+    expect(url.pathname).toBe('/api/inbounddb-lists/v1/lists/4242');
+    expect(url.searchParams.get('portalId')).toBe('12345678');
+    expect(url.searchParams.get('clienttimeout')).toBe('14000');
+    expect(url.searchParams.get('hs_static_app')).toBeNull();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.domain).toBe('list');
+    expect(status.listId).toBe('4242');
+  });
+
+  it('answers no-id on a page that names neither a workflow nor a segment', async () => {
+    const h = harness({ url: 'https://app.hubspot.com/contacts/12345678/objectLists' });
+    const result = await h.askPopup('pp:refresh');
+    expect(result).toEqual({ ok: false, error: 'no-id' });
+    expect(h.refreshCalls).toEqual([]);
   });
 });
 

@@ -14,6 +14,7 @@ const TRIM_CASES = fixture('synthetic/trim-cases.synthetic.json');
 const LOAD_V3 = fixture('synthetic/hybrid-get-v3.json');
 const SAVE_V4 = fixture('synthetic/save-response-v4.json');
 const REFRESH_V4 = fixture('synthetic/refresh-response-v4.json');
+const LIST_GET = fixture('synthetic/inbounddb-list-get.json');
 
 const ALL_FIXTURES = [
   ['ui-number cases', CASES],
@@ -21,6 +22,7 @@ const ALL_FIXTURES = [
   ['load v3', LOAD_V3],
   ['save v4', SAVE_V4],
   ['refresh v4', REFRESH_V4],
+  ['list get', LIST_GET],
 ];
 
 // Synthetic throughout: no identifier here is real, and none is long enough to
@@ -249,6 +251,62 @@ describe('buildAiContext says only what it was told', () => {
     const undated = buildAiContext({ ...META, capturedAtIso: null });
     expect(undated.howToUse[1]).toContain('snapshot of one moment');
     expect(undated.howToUse[1]).not.toContain('capturedAt');
+  });
+
+  // ---------------------------------------------------------------- segments
+
+  it('describes a segment export as a segment, under a list key', () => {
+    const block = buildAiContext({
+      ...META,
+      domain: 'list',
+      listId: '4242',
+      listName: 'Test segment',
+      listVersion: 3,
+      processingType: 'DYNAMIC',
+      objectTypeId: '0-1',
+    });
+    expect(block.whatThisIs).toContain('segment');
+    expect(block.workflow).toBeUndefined();
+    expect(block.list).toEqual({
+      listId: '4242',
+      name: 'Test segment',
+      portalId: '9931',
+      version: 3,
+      processingType: 'DYNAMIC',
+      objectTypeId: '0-1',
+    });
+  });
+
+  it('gives a list reader filter guidance instead of workflow guidance', () => {
+    const block = buildAiContext({ ...META, domain: 'list', listId: '4242' });
+    const prose = block.howToUse.join(' ');
+    // No modification can run on a segment, so the block says untouched...
+    expect(prose).toContain('byte-for-byte what HubSpot sent');
+    // ...explains the filter tree...
+    expect(prose).toContain('filterBranch');
+    // ...and never talks about actionId or editor cards, which do not exist
+    // in this file.
+    expect(prose).not.toContain('actionId');
+    expect(prose).not.toContain('Editor card numbers');
+    // Removability holds regardless of domain.
+    expect(block.howToUse[0]).toContain('delete this one key');
+  });
+
+  it('keeps the list prose as plain as the flow prose', () => {
+    const block = buildAiContext({ ...META, domain: 'list', listId: '4242' });
+    const prose = [block.whatThisIs, ...block.howToUse].join(' ');
+    expect(prose).toMatch(/^[\x20-\x7E]*$/);
+    expect(prose).not.toMatch(/https?:\/\//);
+    expect(prose).not.toMatch(/\bscrub|\bclean|\bsafe|\bsanitiz|\bredact/i);
+  });
+
+  it('splices into a real segment capture without disturbing what the parser reads', () => {
+    const result = addAiContext(LIST_GET, buildAiContext({ ...META, domain: 'list', listId: '4242' }));
+    expect(result.ok, result.reason || '').toBe(true);
+    const after = summarize(result.output);
+    expect(after.domain).toBe('list');
+    expect(after.listId).toBe('4242');
+    expect(after.filterCount).toBe(summarize(LIST_GET).filterCount);
   });
 
   // ---------------------------------------------------------------- the table

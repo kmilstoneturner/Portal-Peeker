@@ -1,18 +1,19 @@
 # Portal Peeker
 
 A Chrome extension for HubSpot admins. It captures the JSON behind a HubSpot workflow as
-you open and save it, and lets you copy or download those exact bytes.
+you open and save it, and the JSON behind a segment (list) as you open one, and lets you
+copy or download those exact bytes.
 
 <img width="341" height="477" alt="Portal-Peeker" src="https://github.com/user-attachments/assets/c4078b7a-35a7-4c7d-8d8b-8e30d48e0dde" />
 <img width="1280" height="800" alt="API Names" src="https://github.com/user-attachments/assets/4deb2892-23ed-4b67-b631-9c72cd14ce81" />
 
 
 **The extension talks to no host but HubSpot.** No telemetry, no analytics, no error
-reporting, no third party of any kind. The only request it ever makes is Refresh refetching
-the flow from HubSpot's own API, on a click, and nothing else it does leaves your machine.
-`host_permissions` is `*://*.hubspot.com/*` and nothing else, which you can verify yourself
-in `chrome://extensions`. CI fails the build on any absolute URL to a non-HubSpot host in
-the bundle.
+reporting, no third party of any kind. The only requests it ever makes are Refresh and
+Fetch refetching the workflow or segment from HubSpot's own API, on a click, and nothing
+else it does leaves your machine. `host_permissions` is `*://*.hubspot.com/*` and nothing
+else, which you can verify yourself in `chrome://extensions`. CI fails the build on any
+absolute URL to a non-HubSpot host in the bundle.
 
 `permissions` is `["storage"]` and nothing else. It holds the state of the Settings page
 checkboxes, in `chrome.storage.local`, so they stay on this machine: never
@@ -111,6 +112,42 @@ copy is not enough on a surface where the surrounding markup would let a wrong g
 
 Settings are stored in `chrome.storage.local`, which is the one permission the extension asks
 for. See the privacy note above.
+
+## What v1.3 adds
+
+**Segment (list) capture.** Open a segment — HubSpot's renamed Lists tool, at
+`/contacts/{portalId}/objectLists/{listId}` — and Portal Peeker captures the response of
+`GET /api/inbounddb-lists/v1/lists/{listId}`: the full definition, `filterBranch` tree
+included. That tree is the answer to "what is this segment actually filtering against",
+which is the reason the feature exists.
+
+The popup shows segment name, list ID, portal ID, version, type (active or static, with
+the raw `processingType`), and a **Filters** row: the number of individual conditions,
+counted across nested branches, ASSOCIATION branches included. Copy and Download work
+exactly as they do for workflows, byte-identical with everything off, and the file is named
+`YYYY-MM-DD-list-{listId}.json` so a segment export never masquerades as a flow.
+
+**Fetch from HubSpot.** When the popup opens on a workflow or segment page with nothing
+captured — you installed after the page loaded, or the SPA navigated without refetching —
+the empty state offers a Fetch button. It is the Refresh mechanism with different copy: one
+user-initiated same-origin GET to HubSpot's own API, cookies and CSRF header riding along,
+nothing else.
+
+What carries over and what does not, honestly:
+
+- **AI context** works on a segment capture. The block names the segment instead of a
+  workflow, and explains the `filterBranch` tree instead of `actionId`.
+- **Trim, HTML strip, and editor numbers are workflow features** and are disabled on a
+  segment capture, labeled as such. Every rule in the trimmer is about workflow structure;
+  running untested rules against a different schema would be exactly the kind of guessing
+  this project refuses to do. A segment payload is small and mostly filter logic anyway.
+
+Three things the capture deliberately ignores on a segment page, because each one arrived
+alongside the definition in live traffic and would replace it: the `getBatch` hydration
+call (an array of the lists your filters refer to), the `/suppression` subresource, and the
+membership-count endpoints. The same discipline applies across pages: a list definition
+fetched by the workflow editor (goal and suppression lists) or by another list's page never
+takes the snapshot; the page URL names the subject, and only the subject is kept.
 
 ## Trimming
 
@@ -235,9 +272,9 @@ In the bridge content script's memory, and nowhere else. Nothing is written to
 `chrome.storage`. The capture exists exactly as long as the page does: reload or close the
 tab and it is gone.
 
-That is deliberate. These payloads carry notification bodies, task instructions, and a
-client's full business logic. People appear in them as bare numeric user ids rather than
-names, but the free text is sensitive on its own.
+That is deliberate. These payloads carry notification bodies, task instructions, segment
+filter criteria, and a client's full business logic. People appear in them as bare numeric
+user ids rather than names, but the free text is sensitive on its own.
 
 ## Build and install
 
@@ -255,9 +292,10 @@ portal data, permissions pinned, settings declared), and runs the tests. Then:
 3. Click **Load unpacked**
 4. Select the `extension/dist` folder
 
-Open a HubSpot workflow. A check mark appears on the extension icon once something has been
-captured. Note that the extension only sees requests made after it loads, so a tab that was
-already open when you installed needs a reload.
+Open a HubSpot workflow or segment. A check mark appears on the extension icon once
+something has been captured. Note that the extension only sees requests made after it
+loads, so a tab that was already open when you installed needs a reload — or the popup's
+Fetch button, which pulls the definition on demand.
 
 ### After rebuilding, reload two things
 
@@ -356,6 +394,15 @@ pointing at documents.
   user-overridable. These are internal APIs and they will change without notice. There is a
   Settings page as of v1.2, so they now have somewhere to go; making them overridable there
   is still v2.
+- The segment endpoint was observed live from segments-ui in August 2026, on the details
+  and filters pages. How a segment **save** travels has not been captured yet: a write to
+  the same path is captured as a save, and if HubSpot saves through some other path, the
+  capture simply stays on the last load — Refresh after saving returns the saved state
+  either way.
+- On the newer `/lists/{portalId}` and `/segments/{portalId}` URL roots, only the portal
+  can be read from the page URL (two bare numbers would make which-is-the-list a guess),
+  so the SPA staleness guard cannot fire there and Fetch is not offered. The
+  `objectLists` pages, where the list ID is unambiguous, have both.
 - The API name annotation reads HubSpot's own markup, which carries no stability promise. If
   HubSpot changes it the names stop appearing. That is the intended failure: the annotation
   is withdrawn rather than guessed at. On the record-page surfaces that put no name in the

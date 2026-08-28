@@ -1,31 +1,35 @@
 # Portal Peeker privacy policy
 
-Last updated: 2026-08-04. Applies to the Portal Peeker Chrome extension, all versions.
+Last updated: 2026-08-28. Applies to the Portal Peeker Chrome extension, all versions.
 
 ## The short version
 
-Portal Peeker reads the JSON that HubSpot's workflow editor exchanges with HubSpot's own
-API, holds it in the memory of the tab you are looking at, and shows you what is in it. If you
-switch on the API names setting, it also reads your portal's property configuration from
-responses HubSpot's own record page already fetched. It does not send any of that anywhere. There is no server, no account, no telemetry, and no
-analytics. The developer cannot see your workflows, and there is no mechanism by which they
-could.
+Portal Peeker reads the JSON that HubSpot's workflow editor and lists (segments) tool
+exchange with HubSpot's own API, holds it in the memory of the tab you are looking at, and
+shows you what is in it. If you switch on the API names setting, it also reads your
+portal's property configuration from responses HubSpot's own record page already fetched.
+It does not send any of that anywhere. There is no server, no account, no telemetry, and no
+analytics. The developer cannot see your workflows or segments, and there is no mechanism
+by which they could.
 
 ## What Portal Peeker reads
 
-It runs on four kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workflows/*`,
-`*://*.hubspot.com/property-settings/*`, `*://*.hubspot.com/contacts/*`, and
-`*://*.hubspot.com/object-builder/*`, which is the frame HubSpot itself draws the create
-record dialog in. What it does on each is different, and two of them involve reading a
-response. On the property settings page and in the create record dialog it reads only what
+It runs on five kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workflows/*`,
+`*://*.hubspot.com/contacts/*`, `*://*.hubspot.com/lists/*` and
+`*://*.hubspot.com/segments/*` (the roots HubSpot's renamed Lists tool uses),
+`*://*.hubspot.com/property-settings/*`, and `*://*.hubspot.com/object-builder/*`, which is
+the frame HubSpot itself draws the create record dialog in. What it does on each is
+different. On the property settings page and in the create record dialog it reads only what
 is already in the page's own markup.
 
-`*://*.hubspot.com/contacts/*` is broader than the pages the extension actually annotates,
-which are CRM record pages. HubSpot opens a record from a list without reloading the page, and
-a narrower pattern would simply fail to load when you got there. On any other page under that
-path, including every list and index view, the extension checks the address, finds no record,
-and does nothing further. The same applies under `*://*.hubspot.com/object-builder/*`: if no
-create dialog is on screen, the script finds nothing to read and does nothing.
+`*://*.hubspot.com/contacts/*` is broader than the pages the extension actually uses, which
+are CRM record pages (for the optional API names annotation) and segment pages (for
+capture). HubSpot opens a record from a list without reloading the page, and a narrower
+pattern would simply fail to load when you got there. On any other page under that path the
+extension checks the address, finds neither a record nor a segment definition in the
+traffic it watches for, and does nothing further. The same applies under
+`*://*.hubspot.com/object-builder/*`: if no create dialog is on screen, the script finds
+nothing to read and does nothing.
 
 On pages matching `*://*.hubspot.com/workflows/*` it observes two requests that HubSpot's
 editor makes to HubSpot:
@@ -34,13 +38,20 @@ editor makes to HubSpot:
   opens.
 - `POST /api/automationplatform/v1/hybrid/batch`, which the editor issues when you save.
 
-It keeps the **response** to those requests. Every other request the page makes is ignored.
-Requests and responses are never modified, blocked, or delayed.
+On segment (list) pages it observes one more request that HubSpot's own page makes:
 
-The response is a workflow definition. Depending on what your workflow does, it can contain
-things like flow and portal identifiers, action configuration, filter criteria, email and
-task bodies, and the numeric HubSpot user IDs of people the workflow refers to. Portal
-Peeker treats all of it as opaque text.
+- `GET /api/inbounddb-lists/v1/lists/{listId}`, which the lists tool issues when a segment
+  opens. A write to that same path, should HubSpot save through it, is kept the same way.
+
+It keeps the **response** to those requests. Every other request the page makes is ignored,
+including the neighboring list endpoints (membership counts, suppression settings, the
+batch call that hydrates lists your filters refer to). Requests and responses are never
+modified, blocked, or delayed.
+
+The response is a workflow or segment definition. Depending on what it does, it can contain
+things like flow, list, and portal identifiers, action configuration, filter criteria and
+the values filters compare against, email and task bodies, and the numeric HubSpot user IDs
+of people it refers to. Portal Peeker treats all of it as opaque text.
 
 On CRM record pages under `*://*.hubspot.com/contacts/*`, and **only if you have switched on
 Show internal API names**, it observes one further kind of request that HubSpot itself makes:
@@ -97,9 +108,10 @@ so they stay on this machine. A build check enforces both the area and the exact
 
 One thing, and only when you ask for it.
 
-Pressing **Refresh** sends a `GET` to HubSpot's own API, on the HubSpot origin you are
-already signed in to, to fetch the current saved state of the workflow you are looking at.
-It is the same request the editor itself makes. It goes to HubSpot and to nobody else.
+Pressing **Refresh**, or **Fetch from HubSpot** on the empty state, sends a `GET` to
+HubSpot's own API, on the HubSpot origin you are already signed in to, to fetch the current
+saved state of the workflow or segment you are looking at. It is the same request the page
+itself makes. It goes to HubSpot and to nobody else.
 
 Nothing else the extension does generates network traffic. `host_permissions` is
 `*://*.hubspot.com/*` and nothing else, which you can confirm for yourself at
@@ -112,17 +124,18 @@ host anywhere in the shipped code.
 through the browser's normal download flow. In both cases you have chosen to move that data,
 and where it goes next is up to you. Portal Peeker has no visibility into either.
 
-Workflow JSON can contain business logic and free text written by your colleagues. Treat an
-exported file the way you would treat any other export from your CRM, particularly before
-pasting one into a third-party tool such as an AI assistant.
+Workflow and segment JSON can contain business logic, filter values, and free text written
+by your colleagues. Treat an exported file the way you would treat any other export from
+your CRM, particularly before pasting one into a third-party tool such as an AI assistant.
 
 ## Cookies
 
 Portal Peeker reads one cookie value, `csrf.app`, on the HubSpot origin, and only when you
-press Refresh. HubSpot's API rejects the request without it. The value is placed in the
-`x-hubspot-csrf-hubspotapi` header of that one request back to HubSpot. It is not stored,
-not logged, and not sent anywhere else. The extension does not request the `cookies`
-permission; the value is read from `document.cookie` on the page you are already on.
+press Refresh or Fetch. HubSpot's API rejects the request without it. The value is placed
+in the `x-hubspot-csrf-hubspotapi` header of that one request back to HubSpot. It is not
+stored, not logged, and not sent anywhere else. The extension does not request the
+`cookies` permission; the value is read from `document.cookie` on the page you are already
+on.
 
 ## Permissions
 
