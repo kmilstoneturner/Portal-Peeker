@@ -13,11 +13,30 @@
 // Do not merge this file with interceptor.js.
 
 // Imports stay on one line each: tools/build.mjs strips them line by line.
-import { WINDOW_CHANNEL, PAGE_MSG, POPUP_MSG, WORKER_MSG, CAPTURE_KIND, CAPTURE_DOMAIN, REFRESH_ERROR } from './protocol.js';
+import { WINDOW_CHANNEL, PAGE_MSG, POPUP_MSG, WORKER_MSG, CAPTURE_KIND, CAPTURE_DOMAIN, SIDECAR_KIND, REFRESH_ERROR } from './protocol.js';
 import { classifyUrl, hybridUrl, inbounddbListUrl, idsFromPageUrl } from './endpoints.js';
 
 /** @type {null | {domain: string, kind: string, raw: string, url: string, flowId: string|null, listId: string|null, capturedAt: number, byteLength: number}} */
 let snapshot = null;
+
+/**
+ * Raw bodies captured beside a segment snapshot, never in its place: the
+ * referenced-list hydration batches, the suppression settings, and the
+ * membership counts the page loads alongside a definition. Held per subject
+ * list and discarded the moment a sidecar for a different list arrives, so a
+ * body can never be exported under a segment it was not loaded for. Same
+ * lifetime rules as the snapshot: this tab's memory, nothing else.
+ *
+ * @type {null | {forListId: string, listBatches: string[], suppression: string|null, membershipCounts: string|null}}
+ */
+let related = null;
+
+// A page can legitimately re-fire hydration (SPA navigation away and back),
+// but unbounded accumulation would be a memory leak wearing a feature's
+// clothes. Byte-identical bodies are dropped as refires; beyond the cap, new
+// batches are dropped rather than evicting older ones, because silently
+// losing the first batch would un-cover lists the popup already counted.
+const MAX_LIST_BATCHES = 8;
 
 // ---------------------------------------------------------------- helpers
 
@@ -137,6 +156,56 @@ function store(entry) {
   }
 }
 
+function storeSidecar(entry) {
+  const ids = idsFromPageUrl(location.href);
+
+  // Same posture as list subjects: on a workflows page the flow is the
+  // subject, and hydration bodies for its goal or suppression lists are not
+  // ours to keep.
+  if (ids.app === 'workflows') return;
+
+  // Whose sidecar is this? An id in the request path is authoritative and, when
+  // the page URL also names a list, the two must agree. getBatch carries no id
+  // at all, so it can only be kept when the page URL says which segment is
+  // open; on an index or an unrecognized URL shape there is no honest answer,
+  // and a guess could bundle another segment's lists into an export.
+  const pathId = entry.listIdFromUrl ? String(entry.listIdFromUrl) : null;
+  if (pathId && ids.listId && pathId !== ids.listId) return;
+  const forListId = pathId || ids.listId || null;
+  if (!forListId) return;
+
+  if (!related || related.forListId !== forListId) {
+    related = { forListId, listBatches: [], suppression: null, membershipCounts: null };
+  }
+
+  if (entry.sidecarKind === SIDECAR_KIND.LIST_BATCHES) {
+    if (related.listBatches.includes(entry.raw)) return;
+    if (related.listBatches.length >= MAX_LIST_BATCHES) return;
+    related.listBatches.push(entry.raw);
+  } else if (entry.sidecarKind === SIDECAR_KIND.SUPPRESSION) {
+    related.suppression = entry.raw;
+  } else if (entry.sidecarKind === SIDECAR_KIND.MEMBERSHIP_COUNTS) {
+    related.membershipCounts = entry.raw;
+  }
+  // No badge: a sidecar alone is nothing the popup can export, so advertising
+  // it would be a check mark with an empty popup behind it.
+}
+
+/**
+ * The sidecars, but only when they demonstrably belong to the snapshot being
+ * read: a segment snapshot, ids equal, and at least one body present.
+ */
+function readableRelated(current) {
+  if (!current || current.domain !== CAPTURE_DOMAIN.LIST || !related) return null;
+  if (!current.listId || related.forListId !== current.listId) return null;
+  if (!related.listBatches.length && !related.suppression && !related.membershipCounts) return null;
+  return {
+    listBatches: [...related.listBatches],
+    suppression: related.suppression,
+    membershipCounts: related.membershipCounts,
+  };
+}
+
 /**
  * The snapshot, or null if it no longer belongs to the flow or segment on
  * screen.
@@ -170,18 +239,30 @@ window.addEventListener('message', (event) => {
   if (event.source !== window) return;
 
   const data = event.data;
-  if (!data || data.channel !== WINDOW_CHANNEL || data.type !== PAGE_MSG.CAPTURE) return;
+  if (!data || data.channel !== WINDOW_CHANNEL) return;
   if (typeof data.body !== 'string' || data.body.length === 0) return;
 
-  store({
-    kind: data.kind === CAPTURE_KIND.SAVE ? CAPTURE_KIND.SAVE : CAPTURE_KIND.LOAD,
-    domain: data.domain === CAPTURE_DOMAIN.LIST ? CAPTURE_DOMAIN.LIST : CAPTURE_DOMAIN.FLOW,
-    raw: data.body,
-    url: data.url,
-    flowIdFromUrl: data.flowIdFromUrl,
-    listIdFromUrl: data.listIdFromUrl,
-    capturedAt: data.capturedAt,
-  });
+  if (data.type === PAGE_MSG.CAPTURE) {
+    store({
+      kind: data.kind === CAPTURE_KIND.SAVE ? CAPTURE_KIND.SAVE : CAPTURE_KIND.LOAD,
+      domain: data.domain === CAPTURE_DOMAIN.LIST ? CAPTURE_DOMAIN.LIST : CAPTURE_DOMAIN.FLOW,
+      raw: data.body,
+      url: data.url,
+      flowIdFromUrl: data.flowIdFromUrl,
+      listIdFromUrl: data.listIdFromUrl,
+      capturedAt: data.capturedAt,
+    });
+    return;
+  }
+
+  if (data.type === PAGE_MSG.SIDECAR) {
+    if (!Object.values(SIDECAR_KIND).includes(data.sidecarKind)) return;
+    storeSidecar({
+      sidecarKind: data.sidecarKind,
+      raw: data.body,
+      listIdFromUrl: data.listIdFromUrl,
+    });
+  }
 });
 
 // ---------------------------------------------------------------- refresh
@@ -270,6 +351,10 @@ function statusPayload() {
     capturedAt: current.capturedAt,
     byteLength: current.byteLength,
     raw: current.raw,
+    // The sidecars ride along raw, exactly like the snapshot itself: the
+    // popup needs the bodies to size and build the bundled export, and the
+    // bridge stays parser-free either way.
+    related: readableRelated(current),
   };
 }
 
@@ -296,6 +381,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
               listId: current.listId,
               kind: current.kind,
               capturedAt: current.capturedAt,
+              related: readableRelated(current),
             }
           : { hasCapture: false },
       );

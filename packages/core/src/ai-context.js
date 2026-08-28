@@ -59,6 +59,18 @@ const NUMBERED_CAVEAT =
 const UNNUMBERED =
   'Editor card numbers are not present in this export. actionId is the stable handle for referring to an action.';
 
+const RELATED_INSERTED =
+  'A _related key was inserted next to this block, holding responses HubSpot\'s page loaded alongside this segment, each byte-for-byte as received: delete that one key and the rest of the document is exactly the export without it.';
+
+const RELATED_BATCHES =
+  '_related.listBatches is an array of hydration responses; each element is one response body, itself an array of full definitions for lists this segment references through IN_LIST, association, or suppression criteria.';
+
+const RELATED_EXTRAS =
+  'When present, _related.suppression and _related.membershipCounts are the raw suppression settings and membership counts responses for this segment.';
+
+const RELATED_ABSENT =
+  'Lists referenced through IN_LIST, association, or suppression criteria appear as ids only: their definitions are separate captures and are not in this file.';
+
 /**
  * Every way an export can differ from what HubSpot sent.
  *
@@ -74,6 +86,10 @@ const UNNUMBERED =
  * prevent.
  */
 export const MODIFICATIONS = [
+  // `domain` names the kind of capture an option applies to; absent means
+  // flow. The block only speaks about options from the export's own domain,
+  // because prose about editor cards in a segment file, or about referenced
+  // lists in a workflow file, would describe features the file cannot have.
   {
     flag: 'trimmedToWorkflowLogic',
     mark: 'trimmed',
@@ -94,6 +110,14 @@ export const MODIFICATIONS = [
     label: 'numbered',
     tells: [NUMBERED, NUMBERED_CAVEAT],
     tellsWhenAbsent: [UNNUMBERED],
+  },
+  {
+    flag: 'relatedCapturesIncluded',
+    mark: 'related',
+    label: 'related lists',
+    domain: 'list',
+    tells: [RELATED_INSERTED, RELATED_BATCHES, RELATED_EXTRAS],
+    tellsWhenAbsent: [RELATED_ABSENT],
   },
 ];
 
@@ -141,13 +165,16 @@ export function buildAiContext(meta = {}) {
 
   const howToUse = [REVERSIBLE, source.capturedAtIso ? SNAPSHOT_AT : SNAPSHOT];
 
-  if (MODIFICATIONS.every((entry) => !modifications[entry.flag])) howToUse.push(UNMODIFIED);
-  for (const entry of MODIFICATIONS) {
-    // Every current modification is a workflow option. On a segment export
-    // none of them can have run, and the absence prose is workflow guidance
-    // (actionId, editor cards), so a list block says what a list reader needs
-    // instead of explaining features that do not apply to the file.
-    if (isList && !modifications[entry.flag]) continue;
+  // Only options from the export's own domain get a voice, in the untouched
+  // line as in the per-option prose: workflow prose (actionId, editor cards)
+  // in a segment file, or segment prose in a workflow file, would explain
+  // features the file cannot have, and a flag from the other domain cannot
+  // have run against this file at all.
+  const domainEntries = MODIFICATIONS.filter(
+    (entry) => (entry.domain || 'flow') === (isList ? 'list' : 'flow'),
+  );
+  if (domainEntries.every((entry) => !modifications[entry.flag])) howToUse.push(UNMODIFIED);
+  for (const entry of domainEntries) {
     howToUse.push(...(modifications[entry.flag] ? entry.tells : entry.tellsWhenAbsent));
   }
   if (isList) howToUse.push(LIST_FILTERS);

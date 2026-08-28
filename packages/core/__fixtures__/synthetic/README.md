@@ -34,7 +34,20 @@ Its `filterBranch` deliberately carries one of each observed condition shape:
 a plain PROPERTY filter, an IN_LIST reference to another list, and an
 ASSOCIATION branch that carries its own operator and nests a PROPERTY filter
 for the associated object. Three leaves in total, which is what
-`countFilters` must report.
+`countFilters` must report, and two referenced lists (4243 via IN_LIST, 4244
+via the association branch), which is what `referencedListIds` must report.
+
+## `inbounddb-list-getbatch.json`
+
+A scrubbed mirror of the matching hydration response: `POST or GET
+/api/inbounddb-lists/v1/lists/getBatch`, which the segment page fires
+alongside the definition and answers with an array of full definitions for
+the lists the open segment references. Same discipline as above: structure,
+key order, and vocabulary as returned, every identifier and value replaced.
+
+It holds exactly the two lists `inbounddb-list-get.json` references, 4243 and
+4244, so the pair also pins the coverage arithmetic: a bundle built from
+these two fixtures covers two of two references.
 
 ## `trim-cases.synthetic.json`
 

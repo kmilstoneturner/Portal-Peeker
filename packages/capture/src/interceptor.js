@@ -26,9 +26,12 @@ function emit(hit, status, bodyText) {
     window.postMessage(
       {
         channel: WINDOW_CHANNEL,
-        type: PAGE_MSG.CAPTURE,
+        // Sidecars ride a separate message type so an older bridge ignores
+        // them rather than storing one as the subject.
+        type: hit.role === 'sidecar' ? PAGE_MSG.SIDECAR : PAGE_MSG.CAPTURE,
         kind: hit.kind,
         domain: hit.domain,
+        sidecarKind: hit.sidecarKind,
         url: hit.url,
         flowIdFromUrl: hit.flowId,
         listIdFromUrl: hit.listId,

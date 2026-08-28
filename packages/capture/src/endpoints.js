@@ -7,7 +7,7 @@
 // as an argument, so an options-page override is a plumbing change, not a
 // rewrite.
 
-import { CAPTURE_KIND, CAPTURE_DOMAIN } from './protocol.js';
+import { CAPTURE_KIND, CAPTURE_DOMAIN, SIDECAR_KIND } from './protocol.js';
 
 export const DEFAULT_PATTERNS = {
   // GET /api/automationplatform/v1/hybrid/{flowId}
@@ -32,6 +32,21 @@ export const DEFAULT_PATTERNS = {
   // resource would answer with the updated definition, so the method, not the
   // path, is what tells a load from a save here.
   list: /\/api\/inbounddb-lists\/v1\/lists\/(\d+)$/,
+
+  // Sidecars: responses the segment page loads alongside the definition, all
+  // observed live in the same page load. Kept beside the snapshot, never in
+  // its place, and exported only behind the "Include referenced lists"
+  // checkbox.
+  //
+  // /lists/getBatch answers with an array of full definitions for the lists
+  // the open segment references (IN_LIST, association, suppression). No id in
+  // its path: the bridge ties it to the list named in the page URL.
+  listBatch: /\/api\/inbounddb-lists\/v1\/lists\/getBatch$/,
+
+  // The subject's suppression settings and membership counts. Both carry the
+  // list id in the path, so a response for another list can be told apart.
+  listSuppression: /\/api\/inbounddb-lists\/v1\/lists\/(\d+)\/suppression$/,
+  listMembership: /\/api\/inbounddb-lists\/v1\/list-membership-search\/list\/(\d+)\/\d+\/current-state$/,
 };
 
 /**
@@ -47,7 +62,7 @@ export const DEFAULT_PATTERNS = {
  * @param {string} [method] HTTP method, for endpoints where the path alone
  *   cannot tell a load from a save. Defaults to GET, which is what the
  *   flow patterns assume and what an XHR without a recorded method was.
- * @returns {{kind: string, domain: string, flowId: string|null, listId: string|null, url: string}|null}
+ * @returns {{role: string, kind: string, domain: string, flowId: string|null, listId: string|null, sidecarKind: string|null, url: string}|null}
  */
 export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 'GET') {
   if (typeof rawUrl !== 'string' || rawUrl.length === 0) return null;
@@ -65,10 +80,12 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
   // flow patterns cannot both match, and the list path is a different prefix.
   if (patterns.save.test(path)) {
     return {
+      role: 'subject',
       kind: CAPTURE_KIND.SAVE,
       domain: CAPTURE_DOMAIN.FLOW,
       flowId: null,
       listId: null,
+      sidecarKind: null,
       url: parsed.href,
     };
   }
@@ -76,10 +93,12 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
   const load = path.match(patterns.load);
   if (load) {
     return {
+      role: 'subject',
       kind: CAPTURE_KIND.LOAD,
       domain: CAPTURE_DOMAIN.FLOW,
       flowId: load[1],
       listId: null,
+      sidecarKind: null,
       url: parsed.href,
     };
   }
@@ -88,13 +107,33 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
   if (list) {
     const writes = typeof method === 'string' && method.toUpperCase() !== 'GET';
     return {
+      role: 'subject',
       kind: writes ? CAPTURE_KIND.SAVE : CAPTURE_KIND.LOAD,
       domain: CAPTURE_DOMAIN.LIST,
       flowId: null,
       listId: list[1],
+      sidecarKind: null,
       url: parsed.href,
     };
   }
+
+  const sidecar = (sidecarKind, listId) => ({
+    role: 'sidecar',
+    kind: CAPTURE_KIND.LOAD,
+    domain: CAPTURE_DOMAIN.LIST,
+    flowId: null,
+    listId,
+    sidecarKind,
+    url: parsed.href,
+  });
+
+  if (patterns.listBatch && patterns.listBatch.test(path)) {
+    return sidecar(SIDECAR_KIND.LIST_BATCHES, null);
+  }
+  const suppression = patterns.listSuppression ? path.match(patterns.listSuppression) : null;
+  if (suppression) return sidecar(SIDECAR_KIND.SUPPRESSION, suppression[1]);
+  const membership = patterns.listMembership ? path.match(patterns.listMembership) : null;
+  if (membership) return sidecar(SIDECAR_KIND.MEMBERSHIP_COUNTS, membership[1]);
 
   return null;
 }

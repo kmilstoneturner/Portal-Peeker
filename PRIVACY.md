@@ -38,15 +38,22 @@ editor makes to HubSpot:
   opens.
 - `POST /api/automationplatform/v1/hybrid/batch`, which the editor issues when you save.
 
-On segment (list) pages it observes one more request that HubSpot's own page makes:
+On segment (list) pages it observes four requests that HubSpot's own page makes:
 
 - `GET /api/inbounddb-lists/v1/lists/{listId}`, which the lists tool issues when a segment
   opens. A write to that same path, should HubSpot save through it, is kept the same way.
+- `/api/inbounddb-lists/v1/lists/getBatch`, the call the page makes to load the full
+  definitions of lists the open segment references in its filters.
+- `/api/inbounddb-lists/v1/lists/{listId}/suppression`, the segment's suppression settings.
+- the membership-count rollup under `/api/inbounddb-lists/v1/list-membership-search/`.
 
-It keeps the **response** to those requests. Every other request the page makes is ignored,
-including the neighboring list endpoints (membership counts, suppression settings, the
-batch call that hydrates lists your filters refer to). Requests and responses are never
-modified, blocked, or delayed.
+The first is the capture. The other three are kept **beside** it, tied to the segment the
+page URL names, and are only ever written into an export when the "Include referenced
+lists" checkbox is on; the file then carries a `-related` suffix. They live in the same
+tab memory as the capture and go when it does.
+
+It keeps the **response** to those requests. Every other request the page makes is
+ignored. Requests and responses are never modified, blocked, or delayed.
 
 The response is a workflow or segment definition. Depending on what it does, it can contain
 things like flow, list, and portal identifiers, action configuration, filter criteria and

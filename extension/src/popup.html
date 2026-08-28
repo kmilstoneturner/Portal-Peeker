@@ -87,6 +87,7 @@
               <div class="row"><dt id="d-version">Version</dt><dd id="f-version" class="mono">not found</dd></div>
               <div class="row" id="row-type" hidden><dt>Type</dt><dd id="f-type">not found</dd></div>
               <div class="row" id="row-filters" hidden><dt>Filters</dt><dd id="f-filters" class="mono">not found</dd></div>
+              <div class="row" id="row-refs" hidden><dt>Referenced</dt><dd id="f-refs">not found</dd></div>
               <div class="row"><dt>Captured</dt><dd id="f-when">not found</dd></div>
               <div class="row"><dt>Size</dt><dd id="f-size" class="mono">not found</dd></div>
               <div class="row"><dt>Est. Tokens</dt><dd id="f-tokens" class="mono">not found</dd></div>
@@ -132,6 +133,28 @@
                 so an AI or a teammate can say "action 12" and mean the card you see
                 on screen. Numbers shift when actions are added, moved, or removed:
                 they are valid for this capture only. actionId is the stable handle.
+              </p>
+              <label class="check" for="opt-related">
+                <input type="checkbox" id="opt-related" checked />
+                <span>Include referenced lists</span>
+                <button
+                  type="button"
+                  class="info"
+                  id="related-info"
+                  aria-expanded="false"
+                  aria-controls="related-tip"
+                  aria-label="About referenced lists"
+                >
+                  i
+                </button>
+              </label>
+              <p class="tip" id="related-tip" hidden>
+                A segment names the lists it depends on (IN_LIST, association,
+                suppression) by id only. HubSpot's page also loads their full
+                definitions, and this bundles those captured responses into the
+                export as one _related key, next to the segment. Every embedded
+                body is byte-for-byte as HubSpot sent it, and deleting that one
+                key restores the export without it, exactly.
               </p>
               <label class="check" for="opt-context">
                 <input type="checkbox" id="opt-context" checked />

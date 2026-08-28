@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { summarize, countFilters } from '../src/summary.js';
+import { summarize, countFilters, referencedListIds, listIdsInBatches } from '../src/summary.js';
 
 const fixture = (name) =>
   readFileSync(fileURLToPath(new URL(`../__fixtures__/${name}`, import.meta.url)), 'utf8');
@@ -131,6 +131,60 @@ describe('summarize: segment (list) capture', () => {
     const result = summarize(raw);
     expect(result.domain).toBe('flow');
     expect(result.flowId).toBe('100');
+  });
+});
+
+describe('referencedListIds', () => {
+  it('collects IN_LIST, association, and suppression references, excluding the list itself', () => {
+    const list = {
+      listId: 100,
+      processingType: 'DYNAMIC',
+      metadata: {
+        membershipSettings: {
+          suppressionSettings: {
+            suppressionLists: [9, { listId: 11 }],
+            secondarySuppressionListId: 13,
+          },
+        },
+      },
+      filterBranch: {
+        filterBranchOperator: 'OR',
+        filters: [{ filterType: 'IN_LIST', listId: 5 }],
+        filterBranches: [
+          {
+            filterBranchType: 'ASSOCIATION',
+            associationListId: 7,
+            filters: [],
+            filterBranches: [],
+          },
+          {
+            // A filter naming the list's own id is self-reference, not a
+            // dependency.
+            filters: [{ filterType: 'IN_LIST', listId: 100 }],
+            filterBranches: [],
+          },
+        ],
+      },
+    };
+    expect(referencedListIds(list)).toEqual(['5', '7', '9', '11', '13']);
+  });
+
+  it('reports the fixture pair the batch fixture covers', () => {
+    expect(summarize(LIST_GET).referencedListIds).toEqual(['4243', '4244']);
+  });
+
+  it('answers empty rather than throwing on shapes it has not seen', () => {
+    expect(referencedListIds(null)).toEqual([]);
+    expect(referencedListIds({})).toEqual([]);
+    expect(referencedListIds({ filterBranch: 42, metadata: 'odd' })).toEqual([]);
+  });
+});
+
+describe('listIdsInBatches', () => {
+  it('collects ids across bodies and skips what will not parse', () => {
+    const good = JSON.stringify([{ listId: 4243 }, { listId: 4244 }]);
+    expect(listIdsInBatches([good, 'not json', '{"listId":1}']).sort()).toEqual(['4243', '4244']);
+    expect(listIdsInBatches(null)).toEqual([]);
   });
 });
 

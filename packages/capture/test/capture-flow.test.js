@@ -426,9 +426,11 @@ describe('segment capture, end to end on a list page', () => {
     expect(status.domain).toBe('list');
   });
 
-  it('ignores the subresources that load alongside the definition', async () => {
-    // All observed firing when a list opens. Capturing any of them would
-    // replace the definition with counts, views, or an array of other lists.
+  it('keeps the responses that load beside the definition aside, never as the snapshot', async () => {
+    // All observed firing when a list opens. Treating any of them as the
+    // subject would replace the definition with counts, views, or an array of
+    // other lists, so they land beside it: no snapshot, no badge, and the
+    // bodies only ride along once the definition itself is captured.
     await h.pageFetch('/api/inbounddb-lists/v1/lists/getBatch?portalId=12345678');
     await h.pageFetch('/api/inbounddb-lists/v1/lists/4242/suppression?portalId=12345678');
     await h.pageFetch('/api/inbounddb-lists/v1/list-membership-search/list/4242/3/current-state');
@@ -437,6 +439,14 @@ describe('segment capture, end to end on a list page', () => {
 
     expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
     expect(h.sent).toEqual([]);
+
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.related).not.toBeNull();
   });
 
   it('refuses a hydration fetch for a different list, before and after the subject', async () => {
@@ -471,6 +481,126 @@ describe('segment capture, end to end on a list page', () => {
     const status = await h.askPopup('pp:status');
     expect(status.hasCapture).toBe(true);
     expect(status.domain).toBe('list');
+  });
+});
+
+describe('sidecar captures beside a segment', () => {
+  const BATCH_BODY = JSON.stringify([{ listId: 4243, processingType: 'DYNAMIC', name: 'Referenced' }]);
+  const SUPP_BODY = JSON.stringify({ suppressionLists: [] });
+  const MEMB_BODY = JSON.stringify({ crmListSize: 4242 });
+
+  const SUPPRESSION_GET = '/api/inbounddb-lists/v1/lists/4242/suppression?portalId=12345678';
+  const MEMBERSHIP_GET = '/api/inbounddb-lists/v1/list-membership-search/list/4242/3/current-state';
+  const BATCH_GET = '/api/inbounddb-lists/v1/lists/getBatch?portalId=12345678';
+
+  async function loadSubject(h) {
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+  }
+
+  it('hands the popup every sidecar body, verbatim, under its own key', async () => {
+    const h = harness({ url: LIST_URL });
+    await loadSubject(h);
+
+    h.setNativeFetch(async () => okResponse(BATCH_BODY));
+    await h.pageFetch(BATCH_GET);
+    h.setNativeFetch(async () => okResponse(SUPP_BODY));
+    await h.pageFetch(SUPPRESSION_GET);
+    h.setNativeFetch(async () => okResponse(MEMB_BODY));
+    await h.pageFetch(MEMBERSHIP_GET);
+    await flush();
+
+    for (const message of ['pp:status', 'pp:payload']) {
+      const answer = await h.askPopup(message);
+      expect(answer.related, message).toEqual({
+        listBatches: [BATCH_BODY],
+        suppression: SUPP_BODY,
+        membershipCounts: MEMB_BODY,
+      });
+    }
+  });
+
+  it('keeps one copy of a byte-identical batch refire', async () => {
+    const h = harness({ url: LIST_URL });
+    await loadSubject(h);
+
+    h.setNativeFetch(async () => okResponse(BATCH_BODY));
+    await h.pageFetch(BATCH_GET);
+    await h.pageFetch(BATCH_GET);
+    await flush();
+
+    expect((await h.askPopup('pp:status')).related.listBatches).toEqual([BATCH_BODY]);
+  });
+
+  it('refuses a suppression body for a different list than the page names', async () => {
+    const h = harness({ url: LIST_URL });
+    await loadSubject(h);
+
+    h.setNativeFetch(async () => okResponse(SUPP_BODY));
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/999/suppression?portalId=12345678');
+    await flush();
+
+    expect((await h.askPopup('pp:status')).related).toBeNull();
+  });
+
+  it('refuses a batch on a page whose URL does not name the segment', async () => {
+    // The batch carries no id of its own, so on the lists index there is no
+    // honest way to say whose lists these are.
+    const h = harness({ url: 'https://app.hubspot.com/contacts/12345678/objectLists' });
+    h.setNativeFetch(async () => okResponse(BATCH_BODY));
+    await h.pageFetch(BATCH_GET);
+    await flush();
+
+    // Nothing was kept: opening a list afterwards starts clean rather than
+    // inheriting a batch nobody can attribute.
+    h.isolatedLocation.href = LIST_URL;
+    h.mainWindow.location.href = LIST_URL;
+    await loadSubject(h);
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.related).toBeNull();
+  });
+
+  it('refuses sidecars on a workflows page', async () => {
+    const h = harness();
+    h.setNativeFetch(async () => okResponse(FLOW_BODY));
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+
+    h.setNativeFetch(async () => okResponse(BATCH_BODY));
+    await h.pageFetch(BATCH_GET);
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.domain).toBe('flow');
+    expect(status.related == null).toBe(true);
+  });
+
+  it('never hands one segment sidecars captured for another', async () => {
+    const h = harness({ url: LIST_URL });
+    await loadSubject(h);
+    h.setNativeFetch(async () => okResponse(BATCH_BODY));
+    await h.pageFetch(BATCH_GET);
+    await flush();
+
+    // The SPA moves to another list: its suppression arrives first, then its
+    // definition. The old batch belongs to 4242 and must not ride along.
+    h.isolatedLocation.href = 'https://app.hubspot.com/contacts/12345678/objectLists/999/filters';
+    h.mainWindow.location.href = h.isolatedLocation.href;
+    h.setNativeFetch(async () => okResponse(SUPP_BODY));
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/999/suppression?portalId=12345678');
+    h.setNativeFetch(async () => okResponse(JSON.stringify({ listId: 999, processingType: 'DYNAMIC' })));
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/999?portalId=12345678');
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.listId).toBe('999');
+    expect(status.related).toEqual({
+      listBatches: [],
+      suppression: SUPP_BODY,
+      membershipCounts: null,
+    });
   });
 });
 

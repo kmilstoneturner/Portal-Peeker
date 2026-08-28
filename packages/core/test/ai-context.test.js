@@ -292,12 +292,42 @@ describe('buildAiContext says only what it was told', () => {
     expect(block.howToUse[0]).toContain('delete this one key');
   });
 
+  it('describes the bundle when referenced lists were included', () => {
+    const block = buildAiContext({
+      ...META,
+      domain: 'list',
+      listId: '4242',
+      modifications: { relatedCapturesIncluded: true },
+    });
+    const prose = block.howToUse.join(' ');
+    expect(block.modifications.relatedCapturesIncluded).toBe(true);
+    expect(prose).toContain('_related');
+    expect(prose).toContain('listBatches');
+    // Something beyond the block was inserted, so the untouched line is gone...
+    expect(prose).not.toContain('byte-for-byte what HubSpot sent');
+    // ...and so is the ids-only caveat the bundle exists to answer.
+    expect(prose).not.toContain('appear as ids only');
+  });
+
+  it('says the references are ids only when the bundle did not run', () => {
+    const prose = buildAiContext({ ...META, domain: 'list', listId: '4242' }).howToUse.join(' ');
+    expect(prose).toContain('appear as ids only');
+    expect(prose).toContain('byte-for-byte what HubSpot sent');
+  });
+
   it('keeps the list prose as plain as the flow prose', () => {
-    const block = buildAiContext({ ...META, domain: 'list', listId: '4242' });
-    const prose = [block.whatThisIs, ...block.howToUse].join(' ');
-    expect(prose).toMatch(/^[\x20-\x7E]*$/);
-    expect(prose).not.toMatch(/https?:\/\//);
-    expect(prose).not.toMatch(/\bscrub|\bclean|\bsafe|\bsanitiz|\bredact/i);
+    for (const related of [false, true]) {
+      const block = buildAiContext({
+        ...META,
+        domain: 'list',
+        listId: '4242',
+        modifications: { relatedCapturesIncluded: related },
+      });
+      const prose = [block.whatThisIs, ...block.howToUse].join(' ');
+      expect(prose).toMatch(/^[\x20-\x7E]*$/);
+      expect(prose).not.toMatch(/https?:\/\//);
+      expect(prose).not.toMatch(/\bscrub|\bclean|\bsafe|\bsanitiz|\bredact/i);
+    }
   });
 
   it('splices into a real segment capture without disturbing what the parser reads', () => {
@@ -341,17 +371,29 @@ describe('buildAiContext says only what it was told', () => {
 
   it('changes what it says when any one modification changes', () => {
     // Baseline has everything on, so the all-false line is out of the way and
-    // the difference can only come from the flag under test.
+    // the difference can only come from the flag under test. Each entry is
+    // toggled inside a block of its own domain, because the block only speaks
+    // about options from the export's domain: flipping a segment option in a
+    // workflow block is supposed to change nothing.
     const all = Object.fromEntries(MODIFICATIONS.map((m) => [m.flag, true]));
-    const withAll = buildAiContext({ ...META, modifications: all }).howToUse.join(' ');
+    const metaFor = (domain) =>
+      domain === 'list' ? { ...META, domain: 'list', listId: '4242' } : META;
 
     for (const entry of MODIFICATIONS) {
+      const meta = metaFor(entry.domain || 'flow');
+      const withAll = buildAiContext({ ...meta, modifications: all }).howToUse.join(' ');
       const withoutOne = buildAiContext({
-        ...META,
+        ...meta,
         modifications: { ...all, [entry.flag]: false },
       }).howToUse.join(' ');
       expect(withoutOne, `turning off ${entry.flag} does not change the block`).not.toBe(withAll);
     }
+  });
+
+  it('an option from the other domain changes nothing, on or off', () => {
+    const flowProse = (flags) => buildAiContext({ ...META, modifications: flags }).howToUse.join(' ');
+    expect(flowProse({ relatedCapturesIncluded: true })).toBe(flowProse({}));
+    expect(flowProse({})).not.toContain('_related');
   });
 
   it('reports every flag in the table and nothing else', () => {

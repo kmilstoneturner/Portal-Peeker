@@ -1,7 +1,7 @@
 {
   "name": "portal-peeker",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Chrome extension for HubSpot admins: capture, inspect, and diff the JSON behind HubSpot workflows and segments.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

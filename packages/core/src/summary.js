@@ -24,6 +24,7 @@
  * @property {string|null} processingType  DYNAMIC | SNAPSHOT | MANUAL, lists only
  * @property {string|null} objectTypeId    lists only
  * @property {number|null} filterCount     lists only
+ * @property {string[]|null} referencedListIds  lists only: ids this segment depends on
  */
 
 const EMPTY = {
@@ -42,6 +43,7 @@ const EMPTY = {
   processingType: null,
   objectTypeId: null,
   filterCount: null,
+  referencedListIds: null,
 };
 
 /**
@@ -84,11 +86,12 @@ export function findFlow(root) {
     }
 
     for (const [key, value] of Object.entries(node)) {
-      // Never descend into our own context block (see ai-context.js). It
-      // records the flow's ID and name, so on an envelope payload, whose root
-      // carries no flowId, the block would otherwise be found before the flow
-      // it describes.
-      if (key === '_aiContext') continue;
+      // Never descend into our own inserted keys (see ai-context.js and
+      // related.js). The context block records the flow's ID and name, so on
+      // an envelope payload, whose root carries no flowId, the block would
+      // otherwise be found before the flow it describes; the related block
+      // carries whole other list definitions.
+      if (key === '_aiContext' || key === '_related') continue;
       if (value && typeof value === 'object') {
         queue.push({ node: value, depth: depth + 1, path: [...path, key] });
       }
@@ -116,7 +119,7 @@ export function findList(root) {
   const candidates = [{ node: root, path: [] }];
   if (root && typeof root === 'object' && !Array.isArray(root)) {
     for (const [key, value] of Object.entries(root)) {
-      if (key === '_aiContext') continue;
+      if (key === '_aiContext' || key === '_related') continue;
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         candidates.push({ node: value, path: [key] });
       }
@@ -156,6 +159,87 @@ export function countFilters(branch) {
     if (Array.isArray(node.filterBranches)) queue.push(...node.filterBranches);
   }
   return count;
+}
+
+/**
+ * The ids of every list this segment depends on, from its own definition.
+ *
+ * Three places name one: IN_LIST filters (filter.listId), ASSOCIATION
+ * branches (branch.associationListId), and the suppression settings under
+ * metadata. The segment's own id is excluded. This is the denominator for
+ * "how much of what this segment references did we also capture".
+ *
+ * @param {object} list a list definition, as found by findList
+ * @returns {string[]} distinct ids, sorted numerically where possible
+ */
+export function referencedListIds(list) {
+  const out = new Set();
+  const add = (value) => {
+    if (value == null || typeof value === 'object' || typeof value === 'boolean') return;
+    out.add(String(value));
+  };
+
+  if (list && typeof list === 'object') {
+    const queue = [list.filterBranch];
+    let guard = 0;
+    while (queue.length && guard++ < 2000) {
+      const node = queue.shift();
+      if (!node || typeof node !== 'object') continue;
+      if (Array.isArray(node.filters)) {
+        for (const filter of node.filters) {
+          if (filter && typeof filter === 'object') add(filter.listId);
+        }
+      }
+      add(node.associationListId);
+      if (Array.isArray(node.filterBranches)) queue.push(...node.filterBranches);
+    }
+
+    const suppression =
+      list.metadata && list.metadata.membershipSettings
+        ? list.metadata.membershipSettings.suppressionSettings
+        : null;
+    if (suppression && typeof suppression === 'object') {
+      const entries = Array.isArray(suppression.suppressionLists) ? suppression.suppressionLists : [];
+      for (const entry of entries) {
+        if (entry && typeof entry === 'object') add(entry.listId);
+        else add(entry);
+      }
+      add(suppression.secondarySuppressionListId);
+      add(suppression.individualSuppressionSecondaryListId);
+      add(suppression.emailDomainSuppressionSecondaryListId);
+    }
+
+    if (list.listId != null) out.delete(String(list.listId));
+  }
+
+  return [...out].sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+}
+
+/**
+ * The list ids present in a set of raw getBatch bodies: the numerator for the
+ * coverage the popup reports. Bodies that will not parse contribute nothing
+ * rather than failing the count.
+ *
+ * @param {string[]} bodies raw responses, each an array of list definitions
+ * @returns {string[]}
+ */
+export function listIdsInBatches(bodies) {
+  const out = new Set();
+  for (const body of Array.isArray(bodies) ? bodies : []) {
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+    for (const item of parsed.slice(0, 500)) {
+      if (item && typeof item === 'object' && item.listId != null && typeof item.listId !== 'object') {
+        out.add(String(item.listId));
+      }
+    }
+  }
+  return [...out];
 }
 
 function countActions(actions) {
@@ -269,6 +353,7 @@ function summarizeList(list, root) {
     // null when the payload carries no filterBranch at all (a MANUAL list
     // legitimately has none); a number, possibly 0, when it does.
     filterCount: countFilters(list.filterBranch),
+    referencedListIds: referencedListIds(list),
   };
 
   if (summary.listId == null) {

@@ -142,12 +142,37 @@ What carries over and what does not, honestly:
   running untested rules against a different schema would be exactly the kind of guessing
   this project refuses to do. A segment payload is small and mostly filter logic anyway.
 
-Three things the capture deliberately ignores on a segment page, because each one arrived
-alongside the definition in live traffic and would replace it: the `getBatch` hydration
-call (an array of the lists your filters refer to), the `/suppression` subresource, and the
-membership-count endpoints. The same discipline applies across pages: a list definition
-fetched by the workflow editor (goal and suppression lists) or by another list's page never
-takes the snapshot; the page URL names the subject, and only the subject is kept.
+The same discipline applies across pages: a list definition fetched by the workflow editor
+(goal and suppression lists) or by another list's page never takes the snapshot; the page
+URL names the subject, and only the subject's definition is the capture.
+
+## What v1.4 adds
+
+**Include referenced lists.** A segment names the lists it depends on — `IN_LIST` filters,
+association branches, suppression settings — by id only, so a bare export answers "what is
+it filtering against" one hop deep and then stops. But HubSpot's own page already fetches
+the missing hop: alongside the definition it loads `getBatch` (an array of full definitions
+for every referenced list), the `/suppression` settings, and the membership counts.
+
+Portal Peeker now keeps those responses **beside** the capture — never in its place, tied
+to the segment the page URL names, discarded when you move to another list — and a new
+checkbox splices them into the export as one `_related` key:
+
+```
+_related.listBatches       hydration responses, each an array of full list definitions
+_related.suppression       the suppression settings response, when captured
+_related.membershipCounts  the membership counts response, when captured
+```
+
+Every embedded body is byte-for-byte what HubSpot sent, wrapped but never rewritten, and
+the whole key is one contiguous insertion: delete `_related` and the export without it is
+back exactly. Bundled files carry a `-related` suffix, and the AI context block explains
+the layout to whoever reads the file.
+
+The popup's **Referenced** row shows coverage before you export: "38 lists (38 captured)"
+means every definition your filters point to rode along; "(0 captured)" means the page
+loaded before the extension did, and a reload will catch them. Refresh renews only the
+segment itself; the sidecar bodies stay as the page loaded them.
 
 ## Trimming
 
@@ -233,18 +258,21 @@ so in its name:
 | --- | --- |
 | nothing | none |
 | editor numbers | `-numbered` |
+| referenced lists (segments) | `-related` |
 | AI context | `-ai` |
 | trim | `-trimmed` |
 | trim, HTML strip | `-trimmed-stripped` |
-| everything | `-trimmed-stripped-numbered-ai` |
+| everything, on a workflow | `-trimmed-stripped-numbered-ai` |
+| everything, on a segment | `-related-ai` |
 
-The two additive options are **insertions, not rewrites**. Only trimming and HTML stripping
+The additive options are **insertions, not rewrites**. Only trimming and HTML stripping
 change what is already in the file, and they are the only two that need one another. So the
 sharper version of the guarantee is: **without a trim, nothing the extension does removes or
-alters a single byte HubSpot sent.** It can only add, and both additions are removable.
+alters a single byte HubSpot sent.** It can only add, and every addition is removable.
 
-The extension writes exactly two keys into the JSON itself, `uiNumber` and `_aiContext`,
-each behind its own checkbox and its own suffix. Nothing else it does is in-band.
+The extension writes exactly three keys into the JSON itself, `uiNumber`, `_related`, and
+`_aiContext`, each behind its own checkbox and its own suffix. Nothing else it does is
+in-band.
 
 That last claim is checked mechanically, not by memory. The list of ways an export can
 differ from the capture lives in one table in `packages/core/src/ai-context.js`, the popup

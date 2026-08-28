@@ -16,6 +16,20 @@ export const WINDOW_CHANNEL = 'portal-peeker/v1';
 // interceptor -> bridge
 export const PAGE_MSG = {
   CAPTURE: 'capture',
+  // A response captured beside the subject, never in its place: the raw
+  // bodies HubSpot's own segment page loads alongside a list definition
+  // (referenced-list hydration, suppression settings, member counts). A
+  // separate message type on purpose: a bridge from before sidecars existed
+  // ignores the unknown type instead of storing one as the subject.
+  SIDECAR: 'sidecar',
+};
+
+// What a sidecar body is. The names double as the keys the export writes
+// under _related, so the wire, the store, and the file cannot disagree.
+export const SIDECAR_KIND = {
+  LIST_BATCHES: 'listBatches',
+  SUPPRESSION: 'suppression',
+  MEMBERSHIP_COUNTS: 'membershipCounts',
 };
 
 // popup -> bridge

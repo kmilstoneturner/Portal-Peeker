@@ -75,20 +75,47 @@ describe('classifyUrl: segments (lists)', () => {
     expect(classifyUrl('/api/inbounddb-lists/v1/lists/4242', LIST_PAGE, undefined, 'GET').kind).toBe('load');
   });
 
-  it('ignores every observed subresource and sibling on the same service', () => {
-    // All four fired alongside the definition GET when a list opened. None of
-    // them is the definition, and capturing any of them would replace it.
-    for (const url of [
-      // the hydration batch for lists the filters refer to; its body is an array
+  it('classifies the responses that load beside a definition as sidecars, never subjects', () => {
+    // All three fired alongside the definition GET when a list opened. None of
+    // them is the definition, and treating any of them as the subject would
+    // replace it; as sidecars they ride along for the bundled export instead.
+    const batch = classifyUrl(
       '/api/inbounddb-lists/v1/lists/getBatch?portalId=12345678&clienttimeout=14000',
-      // the suppression subresource of the open list
+      LIST_PAGE,
+    );
+    expect(batch.role).toBe('sidecar');
+    expect(batch.sidecarKind).toBe('listBatches');
+    // No id in the path: the bridge ties it to the page URL or not at all.
+    expect(batch.listId).toBeNull();
+
+    const suppression = classifyUrl(
       '/api/inbounddb-lists/v1/lists/4242/suppression?portalId=12345678',
-      // membership counts
+      LIST_PAGE,
+    );
+    expect(suppression.role).toBe('sidecar');
+    expect(suppression.sidecarKind).toBe('suppression');
+    expect(suppression.listId).toBe('4242');
+
+    const membership = classifyUrl(
       '/api/inbounddb-lists/v1/list-membership-search/list/4242/3/current-state',
+      LIST_PAGE,
+    );
+    expect(membership.role).toBe('sidecar');
+    expect(membership.sidecarKind).toBe('membershipCounts');
+    expect(membership.listId).toBe('4242');
+
+    // Subjects say so explicitly, so a missing role can never read as one.
+    expect(classifyUrl('/api/inbounddb-lists/v1/lists/4242', LIST_PAGE).role).toBe('subject');
+  });
+
+  it('still ignores what is neither a definition nor a known sidecar', () => {
+    for (const url of [
       // the grid's saved-view configuration
       '/api/sales/v4/views/0-1/all?namespace=LISTS&portalId=12345678',
       // legacy-id mapping lives one path segment deeper and uses another id space
       '/api/inbounddb-lists/v1/lists/771000001/ilsMapping',
+      // membership search endpoints that are not the count rollup
+      '/api/inbounddb-lists/v1/list-membership-search/list/4242/3/members',
     ]) {
       expect(classifyUrl(url, LIST_PAGE), url).toBeNull();
     }

@@ -108,6 +108,7 @@ const COPIES = [
   [`${CORE}/json-span.js`, 'lib/json-span.js'],
   [`${CORE}/ui-numbers.js`, 'lib/ui-numbers.js'],
   [`${CORE}/ai-context.js`, 'lib/ai-context.js'],
+  [`${CORE}/related.js`, 'lib/related.js'],
   [MANIFEST, 'manifest.json'],
   // Ships inside the package, not merely in the repo. Chrome Web Store
   // Developer Agreement 5.2 grants every installer a perpetual worldwide

@@ -22,10 +22,11 @@
 
 import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND, CAPTURE_DOMAIN } from './lib/protocol.js';
 import { idsFromPageUrl } from './lib/endpoints.js';
-import { summarize } from './lib/summary.js';
+import { summarize, listIdsInBatches } from './lib/summary.js';
 import { trim, estimateTokens } from './lib/trim.js';
 import { uiNumbersFromText, addUiNumbers } from './lib/ui-numbers.js';
 import { buildAiContext, checkAiContext, addAiContext, MODIFICATIONS } from './lib/ai-context.js';
+import { addRelated, checkRelated } from './lib/related.js';
 import { SETTINGS } from './lib/settings.js';
 import { readSettings, writeSetting, settingsStoreAvailable } from './lib/settings-store.js';
 
@@ -49,6 +50,8 @@ const view = {
   type: el('f-type'),
   filtersRow: el('row-filters'),
   filters: el('f-filters'),
+  refsRow: el('row-refs'),
+  refs: el('f-refs'),
   when: el('f-when'),
   size: el('f-size'),
   tokens: el('f-tokens'),
@@ -63,6 +66,9 @@ const view = {
   numbersInfo: el('numbers-info'),
   numbersTip: el('numbers-tip'),
   strip: el('opt-strip'),
+  related: el('opt-related'),
+  relatedInfo: el('related-info'),
+  relatedTip: el('related-tip'),
   context: el('opt-context'),
   contextInfo: el('context-info'),
   contextTip: el('context-tip'),
@@ -78,6 +84,7 @@ const STORAGE = {
   trim: 'portal-peeker.trim',
   strip: 'portal-peeker.stripHtml',
   numbers: 'portal-peeker.uiNumbers',
+  related: 'portal-peeker.relatedCaptures',
   context: 'portal-peeker.aiContext',
 };
 
@@ -203,6 +210,37 @@ function contextCheckFor(raw) {
   return variants.get('context');
 }
 
+/** Whether the open capture can carry a _related key at all. */
+function relatedCheckFor(raw) {
+  if (!variants.has('relatedCheck')) variants.set('relatedCheck', checkRelated(raw));
+  return variants.get('relatedCheck');
+}
+
+/** Bundled variant of an export, for the size and token rows. */
+function relatedFor(key, text, pieces) {
+  if (!variants.has(key)) variants.set(key, addRelated(text, pieces));
+  return variants.get(key);
+}
+
+/**
+ * Whether the checkbox can be offered, and the title that says why not.
+ * The bodies come from the bridge, so their presence is a fact about what the
+ * page loaded, not about this payload's shape; the shape check is separate.
+ */
+function relatedStateFor(domain, source) {
+  if (domain !== CAPTURE_DOMAIN.LIST) return { ok: false, reason: 'Segment captures only' };
+  if (!source || !source.related) {
+    return {
+      ok: false,
+      reason:
+        'Nothing was captured alongside this segment. Reload the page to catch the responses that load next to it.',
+    };
+  }
+  const check = relatedCheckFor(source.raw);
+  if (!check.ok) return { ok: false, reason: `Referenced lists unavailable: ${check.reason}` };
+  return { ok: true, reason: null };
+}
+
 function summaryFor(raw) {
   if (!variants.has('summary')) variants.set('summary', summarize(raw));
   return variants.get('summary');
@@ -215,6 +253,7 @@ function contextedFor(key, text, meta) {
 }
 
 const numbersWanted = () => view.numbers.checked && !view.numbers.disabled;
+const relatedWanted = () => view.related.checked && !view.related.disabled;
 const contextWanted = () => view.context.checked && !view.context.disabled;
 
 /**
@@ -309,6 +348,19 @@ function buildExport(raw, source, cached = false) {
     note('editorNumbersAdded');
   }
 
+  // The related captures are an insertion too: one _related key holding the
+  // verbatim sidecar bodies, so the export still degrades to the exact
+  // capture by deleting a single key. Only offered on segment captures, which
+  // renderOptions enforces through the disabled state this reads.
+  if (relatedWanted()) {
+    const pieces = source.related;
+    if (!pieces) return { failed: 'related' };
+    const bundled = cached ? relatedFor(`${stageKey()}-related`, text, pieces) : addRelated(text, pieces);
+    if (!bundled.ok) return { failed: 'related' };
+    text = bundled.output;
+    note('relatedCapturesIncluded');
+  }
+
   if (contextWanted()) {
     // The block reports what actually ran, not what is ticked. An option can be
     // ticked and withdrawn in the same breath.
@@ -372,7 +424,7 @@ function renderSizes() {
   setDelta(view.tokens, `~${num(rawTokens)}`, `~${num(estimateTokens(built.text))}`);
 }
 
-function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck) {
+function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, relatedState) {
   // Trimming, stripping, and numbering are workflow features: their rules and
   // their walker only know flow structure. On a segment capture they are
   // withdrawn as not-applicable rather than as a failure, and the title says
@@ -404,6 +456,15 @@ function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck) {
     : isList
       ? WORKFLOW_ONLY
       : `Editor numbers unavailable: ${numbersCheck ? numbersCheck.reason : 'no capture'}`;
+
+  // Bundling referenced lists is the segment mirror of the workflow options:
+  // available only on a list capture, and only when the bridge actually holds
+  // bodies captured beside this segment. The title carries the reason either
+  // way, so a grey checkbox always says why it is grey.
+  const relatedOk = Boolean(relatedState && relatedState.ok);
+  view.related.disabled = !relatedOk;
+  view.related.parentElement.classList.toggle('is-disabled', !relatedOk);
+  view.related.parentElement.title = relatedOk ? '' : relatedState ? relatedState.reason : 'no capture';
 
   // The context block rides on nothing: it is one inserted key, so it works on
   // a trimmed export and on raw bytes alike, for a segment as for a workflow.
@@ -451,6 +512,7 @@ function render(status) {
   const isList = domain === CAPTURE_DOMAIN.LIST;
   view.typeRow.hidden = !isList;
   view.filtersRow.hidden = !isList;
+  view.refsRow.hidden = !isList;
   if (isList) {
     view.type.textContent = processingTypeLabel(summary.processingType) || 'not found';
     view.filters.textContent =
@@ -459,10 +521,30 @@ function render(status) {
         : summary.processingType && summary.processingType !== 'DYNAMIC'
           ? 'none'
           : 'not found';
+
+    // Coverage before export: how many lists this segment depends on, and how
+    // many of their definitions were captured beside it. "3 lists (0
+    // captured)" is the honest warning that a bundled export will still name
+    // lists it cannot show.
+    const refs = summary.referencedListIds || [];
+    if (refs.length === 0) {
+      view.refs.textContent = 'none';
+    } else {
+      const captured = new Set(listIdsInBatches(status.related ? status.related.listBatches : []));
+      const have = refs.filter((id) => captured.has(id)).length;
+      view.refs.textContent = `${refs.length} list${refs.length === 1 ? '' : 's'} (${have} captured)`;
+    }
   }
 
   const trimCheck = trimFor(status.raw, view.strip.checked);
-  renderOptions(domain, trimCheck.ok, trimCheck.reason, numbersFor(status.raw), contextCheckFor(status.raw));
+  renderOptions(
+    domain,
+    trimCheck.ok,
+    trimCheck.reason,
+    numbersFor(status.raw),
+    contextCheckFor(status.raw),
+    relatedStateFor(domain, status),
+  );
 
   // For a workflow, an unavailable trim is part of the degraded story. For a
   // segment it is the normal state (trimming is a workflow feature), so only
@@ -563,9 +645,11 @@ function restoreOptions() {
   try {
     view.trim.checked = localStorage.getItem(STORAGE.trim) === 'true';
     view.strip.checked = localStorage.getItem(STORAGE.strip) === 'true';
-    // Numbers and the context block default on: only an explicit untick, stored
-    // as 'false', turns them off. Absent means checked, matching the markup.
+    // Numbers, referenced lists, and the context block default on: only an
+    // explicit untick, stored as 'false', turns them off. Absent means
+    // checked, matching the markup.
     view.numbers.checked = localStorage.getItem(STORAGE.numbers) !== 'false';
+    view.related.checked = localStorage.getItem(STORAGE.related) !== 'false';
     view.context.checked = localStorage.getItem(STORAGE.context) !== 'false';
   } catch {
     // Private mode or blocked storage. Defaults are fine.
@@ -577,6 +661,7 @@ function persistOptions() {
     localStorage.setItem(STORAGE.trim, String(view.trim.checked));
     localStorage.setItem(STORAGE.strip, String(view.strip.checked));
     localStorage.setItem(STORAGE.numbers, String(view.numbers.checked));
+    localStorage.setItem(STORAGE.related, String(view.related.checked));
     localStorage.setItem(STORAGE.context, String(view.context.checked));
   } catch {
     /* preference is not worth an error message */
@@ -587,12 +672,14 @@ function onOptionChange() {
   persistOptions();
   if (!snapshot) return;
   const trimCheck = trimFor(snapshot.raw, view.strip.checked);
+  const domain = domainOf(snapshot, summaryFor(snapshot.raw));
   renderOptions(
-    domainOf(snapshot, summaryFor(snapshot.raw)),
+    domain,
     trimCheck.ok,
     trimCheck.reason,
     numbersFor(snapshot.raw),
     contextCheckFor(snapshot.raw),
+    relatedStateFor(domain, snapshot),
   );
   renderSizes();
   say('');
@@ -601,6 +688,7 @@ function onOptionChange() {
 view.trim.addEventListener('change', onOptionChange);
 view.strip.addEventListener('change', onOptionChange);
 view.numbers.addEventListener('change', onOptionChange);
+view.related.addEventListener('change', onOptionChange);
 view.context.addEventListener('change', onOptionChange);
 
 // ---------------------------------------------------------------- nav
@@ -761,6 +849,7 @@ function wireTip(button, panel) {
 }
 
 wireTip(view.numbersInfo, view.numbersTip);
+wireTip(view.relatedInfo, view.relatedTip);
 wireTip(view.contextInfo, view.contextTip);
 
 document.addEventListener('keydown', (event) => {
@@ -783,6 +872,7 @@ async function freshPayload() {
 const FAILURE = {
   trim: 'Could not trim this payload.',
   numbers: 'Could not number this payload.',
+  related: 'Could not bundle the referenced lists.',
   context: 'Could not add the AI context block.',
 };
 
