@@ -63,7 +63,7 @@ const RELATED_INSERTED =
   'A _related key was inserted next to this block, holding responses HubSpot\'s page loaded alongside this segment, each byte-for-byte as received: delete that one key and the rest of the document is exactly the export without it.';
 
 const RELATED_BATCHES =
-  '_related.listBatches is an array of hydration responses; each element is one response body, itself an array of full definitions for lists this segment references through IN_LIST, association, or suppression criteria.';
+  'When present, _related.listBatches is an array of hydration responses; each element is one response body, itself an array of full definitions for lists this segment references through IN_LIST, association, or suppression criteria. A referenced list with no definition in there was not loaded by the page and lives in a separate capture.';
 
 const RELATED_EXTRAS =
   'When present, _related.suppression and _related.membershipCounts are the raw suppression settings and membership counts responses for this segment.';
