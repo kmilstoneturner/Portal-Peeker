@@ -47,6 +47,14 @@ export const DEFAULT_PATTERNS = {
   // list id in the path, so a response for another list can be told apart.
   listSuppression: /\/api\/inbounddb-lists\/v1\/lists\/(\d+)\/suppression$/,
   listMembership: /\/api\/inbounddb-lists\/v1\/list-membership-search\/list\/(\d+)\/\d+\/current-state$/,
+
+  // Known and deliberately NOT captured: /api/crm-search/search. On a
+  // segment page it resolves suppression-list ids to names (rows of the
+  // internal 0-45 list object), but the same URL serves every CRM search in
+  // HubSpot, the members table on that very page included, and this module
+  // classifies by URL alone. Capturing it would risk keeping real record
+  // rows; and it carries names only, no definitions, so the popup's Fetch
+  // missing action covers the need with the definition endpoint instead.
 };
 
 /**

@@ -71,6 +71,25 @@ describe('addRelated inserts one span and changes nothing else', () => {
     expect(parsed.listBatches[1]).toEqual(JSON.parse(second));
   });
 
+  it('carries fetched definitions under their own key, after the batches', () => {
+    const fetched = '{"listId":4245,"processingType":"DYNAMIC","name":"Fetched on request"}';
+    const parsed = JSON.parse(
+      addRelated(LIST_GET, { listBatches: [BATCH], fetchedLists: [fetched], suppression: SUPPRESSION }).output,
+    )._related;
+    expect(Object.keys(parsed)).toEqual(['listBatches', 'fetchedLists', 'suppression']);
+    expect(parsed.fetchedLists).toEqual([JSON.parse(fetched)]);
+
+    // A bundle of only fetched definitions stands on its own.
+    const alone = JSON.parse(addRelated(LIST_GET, { fetchedLists: [fetched] }).output)._related;
+    expect(Object.keys(alone)).toEqual(['fetchedLists']);
+  });
+
+  it('refuses a fetched body that is not JSON', () => {
+    expect(addRelated(LIST_GET, { fetchedLists: ['not json'] }).reason).toBe(
+      'a fetched list body is not JSON',
+    );
+  });
+
   it('does not disturb what the parser makes of the subject', () => {
     const before = summarize(LIST_GET);
     const after = summarize(addRelated(LIST_GET, PIECES).output);

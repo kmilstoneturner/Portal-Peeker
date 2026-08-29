@@ -303,6 +303,7 @@ describe('buildAiContext says only what it was told', () => {
     expect(block.modifications.relatedCapturesIncluded).toBe(true);
     expect(prose).toContain('_related');
     expect(prose).toContain('listBatches');
+    expect(prose).toContain('fetchedLists');
     // Something beyond the block was inserted, so the untouched line is gone...
     expect(prose).not.toContain('byte-for-byte what HubSpot sent');
     // ...and so is the ids-only caveat the bundle exists to answer.

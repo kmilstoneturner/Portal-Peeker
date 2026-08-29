@@ -224,15 +224,22 @@ export function referencedListIds(list) {
 }
 
 /**
- * The list ids present in a set of raw getBatch bodies: the numerator for the
- * coverage the popup reports. Bodies that will not parse contribute nothing
- * rather than failing the count.
+ * The list ids present in a set of raw captured bodies: the numerator for the
+ * coverage the popup reports. A body is either one getBatch response (an
+ * array of definitions) or one single-definition response fetched on request;
+ * both count. Bodies that will not parse contribute nothing rather than
+ * failing the count.
  *
- * @param {string[]} bodies raw responses, each an array of list definitions
+ * @param {string[]} bodies raw responses
  * @returns {string[]}
  */
 export function listIdsInBatches(bodies) {
   const out = new Set();
+  const take = (item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item) && item.listId != null && typeof item.listId !== 'object') {
+      out.add(String(item.listId));
+    }
+  };
   for (const body of Array.isArray(bodies) ? bodies : []) {
     let parsed;
     try {
@@ -240,11 +247,10 @@ export function listIdsInBatches(bodies) {
     } catch {
       continue;
     }
-    if (!Array.isArray(parsed)) continue;
-    for (const item of parsed.slice(0, 500)) {
-      if (item && typeof item === 'object' && item.listId != null && typeof item.listId !== 'object') {
-        out.add(String(item.listId));
-      }
+    if (Array.isArray(parsed)) {
+      for (const item of parsed.slice(0, 500)) take(item);
+    } else {
+      take(parsed);
     }
   }
   return [...out];

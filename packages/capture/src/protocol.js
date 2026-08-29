@@ -39,8 +39,12 @@ export const POPUP_MSG = {
   // Re-pull of the raw body immediately before Copy or Download, so a save that
   // landed while the popup was open cannot put a stale payload on the clipboard.
   PAYLOAD: 'pp:payload',
-  // Same-origin refetch of GET /hybrid/{flowId}, run in the content script.
+  // Same-origin refetch of the open flow or segment, run in the content script.
   REFRESH: 'pp:refresh',
+  // Same-origin fetch of referenced list definitions the page itself never
+  // loaded (a segment's suppression lists, for one). Carries listIds; one GET
+  // per id, user-initiated, stored beside the snapshot like page sidecars.
+  FETCH_REFERENCED: 'pp:fetch-referenced',
 };
 
 // bridge -> service worker

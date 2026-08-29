@@ -142,9 +142,9 @@ function harness({ cookie = DEFAULT_COOKIE, url = EDITOR_URL } = {}) {
   runInContext(readFileSync(dist('capture/bridge.js'), 'utf8'), isolated);
   runInContext(readFileSync(dist('capture/interceptor.js'), 'utf8'), main);
 
-  const askPopup = (type) =>
+  const askPopup = (type, extra) =>
     new Promise((resolve) => {
-      const returned = popupHandler({ type }, {}, resolve);
+      const returned = popupHandler({ type, ...extra }, {}, resolve);
       if (returned !== true) {
         // Synchronous responder already called resolve.
       }
@@ -532,6 +532,7 @@ describe('sidecar captures beside a segment', () => {
       const answer = await h.askPopup(message);
       expect(answer.related, message).toEqual({
         listBatches: [BATCH_BODY],
+        fetchedLists: [],
         suppression: SUPP_BODY,
         membershipCounts: MEMB_BODY,
       });
@@ -615,9 +616,102 @@ describe('sidecar captures beside a segment', () => {
     expect(status.listId).toBe('999');
     expect(status.related).toEqual({
       listBatches: [],
+      fetchedLists: [],
       suppression: SUPP_BODY,
       membershipCounts: null,
     });
+  });
+});
+
+describe('fetching referenced definitions the page never loaded', () => {
+  const definitionFor = (url) =>
+    JSON.stringify({ listId: Number(new URL(url).pathname.split('/').pop()), processingType: 'DYNAMIC' });
+
+  async function subject(h) {
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    await flush();
+  }
+
+  it('fetches each missing id through the definition endpoint, with the CSRF header', async () => {
+    const h = harness({ url: LIST_URL });
+    await subject(h);
+    h.setRefresh(async (url) => ({ ok: true, status: 200, text: async () => definitionFor(url) }));
+
+    const result = await h.askPopup('pp:fetch-referenced', { listIds: ['20', '21'] });
+    expect(result).toEqual({ ok: true, fetched: 2, failed: [] });
+
+    expect(h.refreshCalls).toHaveLength(2);
+    for (const [index, id] of [['0', '20'], ['1', '21']].map(([i, id]) => [Number(i), id])) {
+      const url = new URL(h.refreshCalls[index].url);
+      expect(url.pathname).toBe(`/api/inbounddb-lists/v1/lists/${id}`);
+      expect(url.searchParams.get('portalId')).toBe('12345678');
+      expect(h.refreshCalls[index].init.headers['x-hubspot-csrf-hubspotapi']).toBe('csrf-token-value');
+    }
+
+    const status = await h.askPopup('pp:status');
+    expect(status.related.fetchedLists).toHaveLength(2);
+    expect(JSON.parse(status.related.fetchedLists[0]).listId).toBe(20);
+  });
+
+  it('skips ids already fetched, and the subject its own id', async () => {
+    const h = harness({ url: LIST_URL });
+    await subject(h);
+    h.setRefresh(async (url) => ({ ok: true, status: 200, text: async () => definitionFor(url) }));
+
+    await h.askPopup('pp:fetch-referenced', { listIds: ['20'] });
+    const again = await h.askPopup('pp:fetch-referenced', { listIds: ['20', '4242'] });
+    // '4242' is the subject itself and never even qualifies; '20' is already
+    // held, so the answer is an honest nothing-new, with no request made.
+    expect(again).toEqual({ ok: true, fetched: 0, failed: [] });
+    expect(h.refreshCalls).toHaveLength(1);
+
+    expect((await h.askPopup('pp:status')).related.fetchedLists).toHaveLength(1);
+  });
+
+  it('keeps what succeeded and names what failed', async () => {
+    const h = harness({ url: LIST_URL });
+    await subject(h);
+    h.setRefresh(async (url) =>
+      url.includes('/lists/21')
+        ? { ok: false, status: 403, text: async () => 'nope' }
+        : { ok: true, status: 200, text: async () => definitionFor(url) },
+    );
+
+    const result = await h.askPopup('pp:fetch-referenced', { listIds: ['20', '21', '22'] });
+    expect(result.ok).toBe(true);
+    expect(result.fetched).toBe(2);
+    expect(result.failed).toEqual(['21']);
+    expect((await h.askPopup('pp:status')).related.fetchedLists).toHaveLength(2);
+  });
+
+  it('refuses without a segment capture to attach to', async () => {
+    const empty = harness({ url: LIST_URL });
+    expect(await empty.askPopup('pp:fetch-referenced', { listIds: ['20'] })).toEqual({
+      ok: false,
+      error: 'no-id',
+    });
+    expect(empty.refreshCalls).toEqual([]);
+
+    const flow = harness();
+    flow.setNativeFetch(async () => okResponse(FLOW_BODY));
+    await flow.pageFetch(HYBRID_GET);
+    await flush();
+    expect(await flow.askPopup('pp:fetch-referenced', { listIds: ['20'] })).toEqual({
+      ok: false,
+      error: 'no-id',
+    });
+    expect(flow.refreshCalls).toEqual([]);
+  });
+
+  it('rejects ids that are not bare numbers rather than building URLs from them', async () => {
+    const h = harness({ url: LIST_URL });
+    await subject(h);
+    const result = await h.askPopup('pp:fetch-referenced', {
+      listIds: ['../../evil', '20/suppression', '', null],
+    });
+    expect(result).toEqual({ ok: false, error: 'no-id' });
+    expect(h.refreshCalls).toEqual([]);
   });
 });
 

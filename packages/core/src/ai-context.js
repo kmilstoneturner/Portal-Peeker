@@ -65,6 +65,9 @@ const RELATED_INSERTED =
 const RELATED_BATCHES =
   'When present, _related.listBatches is an array of hydration responses; each element is one response body, itself an array of full definitions for lists this segment references through IN_LIST, association, or suppression criteria. A referenced list with no definition in there was not loaded by the page and lives in a separate capture.';
 
+const RELATED_FETCHED =
+  'When present, _related.fetchedLists holds single-definition responses fetched on request for referenced lists the page itself never loaded, most often the suppression lists; each element is one verbatim response body.';
+
 const RELATED_EXTRAS =
   'When present, _related.suppression and _related.membershipCounts are the raw suppression settings and membership counts responses for this segment.';
 
@@ -116,7 +119,7 @@ export const MODIFICATIONS = [
     mark: 'related',
     label: 'related lists',
     domain: 'list',
-    tells: [RELATED_INSERTED, RELATED_BATCHES, RELATED_EXTRAS],
+    tells: [RELATED_INSERTED, RELATED_BATCHES, RELATED_FETCHED, RELATED_EXTRAS],
     tellsWhenAbsent: [RELATED_ABSENT],
   },
 ];

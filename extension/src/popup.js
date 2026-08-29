@@ -52,6 +52,7 @@ const view = {
   filters: el('f-filters'),
   refsRow: el('row-refs'),
   refs: el('f-refs'),
+  fetchRefs: el('fetch-refs'),
   when: el('f-when'),
   size: el('f-size'),
   tokens: el('f-tokens'),
@@ -541,14 +542,18 @@ function render(status) {
     // Coverage before export: how many lists this segment depends on, and how
     // many of their definitions were captured beside it. "3 lists (0
     // captured)" is the honest warning that a bundled export will still name
-    // lists it cannot show.
+    // lists it cannot show, and the Fetch missing button is the way to close
+    // the gap: the page names its suppression lists but never loads them.
     const refs = summary.referencedListIds || [];
     if (refs.length === 0) {
       view.refs.textContent = 'none';
+      view.fetchRefs.hidden = true;
     } else {
-      const captured = new Set(listIdsInBatches(status.related ? status.related.listBatches : []));
+      const captured = new Set(listIdsInBatches(relatedBodies(status.related)));
       const have = refs.filter((id) => captured.has(id)).length;
       view.refs.textContent = `${refs.length} list${refs.length === 1 ? '' : 's'} (${have} captured)`;
+      view.fetchRefs.hidden = have >= refs.length;
+      view.fetchRefs.disabled = false;
     }
   }
 
@@ -600,14 +605,22 @@ function say(text, isError = false) {
 
 // ---------------------------------------------------------------- messaging
 
-async function ask(type) {
+async function ask(type, extra) {
   if (tabId == null) return null;
   try {
-    return await chrome.tabs.sendMessage(tabId, { type });
+    return await chrome.tabs.sendMessage(tabId, { type, ...extra });
   } catch {
-    // No receiver: the tab predates the install, or it is not a workflow page.
+    // No receiver: the tab predates the install, or it is not a capture page.
     return null;
   }
+}
+
+/** Every captured body that can hold list definitions: the page's own
+ * hydration batches plus anything fetched on request. One list, so coverage
+ * counting and export bundling can never disagree about what was captured. */
+function relatedBodies(related) {
+  if (!related) return [];
+  return [...(related.listBatches || []), ...(related.fetchedLists || [])];
 }
 
 async function load() {
@@ -997,6 +1010,43 @@ view.fetch.addEventListener('click', async () => {
 
   await load();
   say('Fetched. This is the last saved state, not unsaved edits.');
+});
+
+// Fetch missing on the Referenced row: one GET per referenced list whose
+// definition is not in the bundle yet. The bridge does the fetching (cookies
+// and CSRF live there); this side only knows which ids are missing, from the
+// same arithmetic the row displays.
+view.fetchRefs.addEventListener('click', async () => {
+  if (!snapshot) return;
+  const summary = summaryFor(snapshot.raw);
+  const refs = summary.referencedListIds || [];
+  const captured = new Set(listIdsInBatches(relatedBodies(snapshot.related)));
+  const missing = refs.filter((id) => !captured.has(id));
+  if (!missing.length) return;
+
+  view.fetchRefs.disabled = true;
+  say(`Fetching ${num(missing.length)} referenced list${missing.length === 1 ? '' : 's'}...`);
+
+  const result = await ask(POPUP_MSG.FETCH_REFERENCED, { listIds: missing });
+  view.fetchRefs.disabled = false;
+
+  if (!result) {
+    say('The page is not responding. Reload it and try again.', true);
+    return;
+  }
+  if (!result.ok) {
+    say(refreshErrorText(result), true);
+    return;
+  }
+
+  await load();
+  const failed = Array.isArray(result.failed) ? result.failed : [];
+  say(
+    failed.length
+      ? `Fetched ${num(result.fetched)}; list${failed.length === 1 ? '' : 's'} ${failed.join(', ')} could not be fetched.`
+      : `Fetched ${num(result.fetched)} referenced list definition${result.fetched === 1 ? '' : 's'}.`,
+    failed.length > 0,
+  );
 });
 
 function refreshErrorText(result) {

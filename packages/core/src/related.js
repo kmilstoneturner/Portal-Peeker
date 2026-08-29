@@ -46,11 +46,13 @@ const parses = (text) => {
 /**
  * Splice the related captures in as one key of a JSON object document.
  *
- * The inserted value is an object with up to three members, every one of them
+ * The inserted value is an object with up to four members, every one of them
  * a verbatim captured body:
  *
  *   listBatches       array of hydration responses; each element is one
  *                     response body, itself an array of full list definitions
+ *   fetchedLists      array of single-definition responses, fetched on
+ *                     request for referenced lists the page never loaded
  *   suppression       the segment's suppression settings response
  *   membershipCounts  the segment's membership count response
  *
@@ -61,7 +63,7 @@ const parses = (text) => {
  * refuses to build.
  *
  * @param {string} jsonText the export so far
- * @param {{listBatches?: string[], suppression?: string|null, membershipCounts?: string|null}} pieces
+ * @param {{listBatches?: string[], fetchedLists?: string[], suppression?: string|null, membershipCounts?: string|null}} pieces
  * @returns {{ok: boolean, output: string|null, reason: string|null, inserted: string|null}}
  */
 export function addRelated(jsonText, pieces) {
@@ -78,10 +80,17 @@ export function addRelated(jsonText, pieces) {
   for (const body of batches) {
     if (!parses(body)) return refuse('a referenced-list batch body is not JSON');
   }
+  const fetched = Array.isArray(pieces.fetchedLists) ? pieces.fetchedLists : [];
+  for (const body of fetched) {
+    if (!parses(body)) return refuse('a fetched list body is not JSON');
+  }
 
   const members = [];
   if (batches.length > 0) {
     members.push(`"listBatches":[${batches.join(',')}]`);
+  }
+  if (fetched.length > 0) {
+    members.push(`"fetchedLists":[${fetched.join(',')}]`);
   }
   if (pieces.suppression != null) {
     if (!parses(pieces.suppression)) return refuse('the suppression body is not JSON');

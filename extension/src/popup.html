@@ -87,7 +87,20 @@
               <div class="row"><dt id="d-version">Version</dt><dd id="f-version" class="mono">not found</dd></div>
               <div class="row" id="row-type" hidden><dt>Type</dt><dd id="f-type">not found</dd></div>
               <div class="row" id="row-filters" hidden><dt>Filters</dt><dd id="f-filters" class="mono">not found</dd></div>
-              <div class="row" id="row-refs" hidden><dt>Referenced</dt><dd id="f-refs">not found</dd></div>
+              <!--
+                Fetch missing appears when the segment references lists whose
+                definitions were not captured beside it (suppression lists,
+                which the page names but never loads). One user-initiated GET
+                per missing list, through the same definition endpoint as
+                every other capture.
+              -->
+              <div class="row" id="row-refs" hidden>
+                <dt>Referenced</dt>
+                <dd>
+                  <span id="f-refs">not found</span>
+                  <button type="button" class="mini" id="fetch-refs" hidden>Fetch missing</button>
+                </dd>
+              </div>
               <div class="row"><dt>Captured</dt><dd id="f-when">not found</dd></div>
               <div class="row"><dt>Size</dt><dd id="f-size" class="mono">not found</dd></div>
               <div class="row"><dt>Est. Tokens</dt><dd id="f-tokens" class="mono">not found</dd></div>

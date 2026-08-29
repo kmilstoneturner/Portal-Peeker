@@ -113,12 +113,17 @@ so they stay on this machine. A build check enforces both the area and the exact
 
 ## What leaves your computer
 
-One thing, and only when you ask for it.
+Requests to HubSpot's own API, on the HubSpot origin you are already signed in to, and
+only when you ask for them by pressing a button:
 
-Pressing **Refresh**, or **Fetch from HubSpot** on the empty state, sends a `GET` to
-HubSpot's own API, on the HubSpot origin you are already signed in to, to fetch the current
-saved state of the workflow or segment you are looking at. It is the same request the page
-itself makes. It goes to HubSpot and to nobody else.
+- **Refresh**, or **Fetch from HubSpot** on the empty state, sends one `GET` to fetch the
+  current saved state of the workflow or segment you are looking at. It is the same
+  request the page itself makes.
+- **Fetch missing**, on a segment's Referenced row, sends one `GET` per referenced list
+  whose definition the page never loaded (typically the suppression lists), to the same
+  list-definition endpoint the capture reads.
+
+Every one of these goes to HubSpot and to nobody else.
 
 Nothing else the extension does generates network traffic. `host_permissions` is
 `*://*.hubspot.com/*` and nothing else, which you can confirm for yourself at
@@ -138,7 +143,7 @@ your CRM, particularly before pasting one into a third-party tool such as an AI 
 ## Cookies
 
 Portal Peeker reads one cookie value, `csrf.app`, on the HubSpot origin, and only when you
-press Refresh or Fetch. HubSpot's API rejects the request without it. The value is placed
+press Refresh, Fetch, or Fetch missing. HubSpot's API rejects the request without it. The value is placed
 in the `x-hubspot-csrf-hubspotapi` header of that one request back to HubSpot. It is not
 stored, not logged, and not sent anywhere else. The extension does not request the
 `cookies` permission; the value is read from `document.cookie` on the page you are already

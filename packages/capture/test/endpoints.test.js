@@ -124,6 +124,10 @@ describe('classifyUrl: segments (lists)', () => {
       '/api/inbounddb-lists/v1/lists/771000001/ilsMapping',
       // membership search endpoints that are not the count rollup
       '/api/inbounddb-lists/v1/list-membership-search/list/4242/3/members',
+      // crm-search resolves suppression-list names on this page, but the same
+      // URL serves every CRM search, the members table included, and this
+      // module classifies by URL alone: capturing it could keep record rows.
+      '/api/crm-search/search?portalId=12345678&clienttimeout=14000',
     ]) {
       expect(classifyUrl(url, LIST_PAGE), url).toBeNull();
     }

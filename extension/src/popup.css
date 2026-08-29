@@ -269,6 +269,34 @@ body {
   display: none;
 }
 
+/* An inline action that lives inside a value row (Fetch missing on the
+   Referenced row): quieter than the main buttons, still obviously clickable. */
+.mini {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mini:hover:not(:disabled) {
+  background: #e5f8f6;
+}
+
+.mini:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mini[hidden] {
+  display: none;
+}
+
 /* The info buttons explain the two in-band additions (uiNumber, _aiContext)
    without costing popup real estate. */
 .info {

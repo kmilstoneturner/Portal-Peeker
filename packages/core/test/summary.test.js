@@ -213,9 +213,11 @@ describe('referencedListIds', () => {
 });
 
 describe('listIdsInBatches', () => {
-  it('collects ids across bodies and skips what will not parse', () => {
-    const good = JSON.stringify([{ listId: 4243 }, { listId: 4244 }]);
-    expect(listIdsInBatches([good, 'not json', '{"listId":1}']).sort()).toEqual(['4243', '4244']);
+  it('collects ids from batch and single-definition bodies, skipping what will not parse', () => {
+    const batch = JSON.stringify([{ listId: 4243 }, { listId: 4244 }]);
+    // A single-definition body is what Fetch missing stores, and it counts.
+    const fetched = '{"listId":21,"processingType":"DYNAMIC"}';
+    expect(listIdsInBatches([batch, 'not json', fetched]).sort()).toEqual(['21', '4243', '4244']);
     expect(listIdsInBatches(null)).toEqual([]);
   });
 });

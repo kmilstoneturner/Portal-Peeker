@@ -173,9 +173,16 @@ back exactly. Bundled files carry a `-related` suffix, and the AI context block 
 the layout to whoever reads the file.
 
 The popup's **Referenced** row shows coverage before you export: "38 lists (38 captured)"
-means every definition your filters point to rode along; "(0 captured)" means the page
-loaded before the extension did, and a reload will catch them. Refresh renews only the
-segment itself; the sidecar bodies stay as the page loaded them.
+means every definition your filters point to rode along. When the count falls short, a
+**Fetch missing** button sits beside it, and it exists because of a gap in what the page
+itself loads: filter references arrive with full definitions through `getBatch`, but
+**suppression lists never do** — the page resolves their names through a generic CRM
+search (which carries no filter logic, and which the extension deliberately does not
+capture, since the same URL serves the members table's actual record rows). Fetch missing
+closes the gap directly: one user-initiated GET per missing list, through the same
+definition endpoint every other capture uses, and each verbatim body joins the bundle
+under `_related.fetchedLists`. Refresh renews only the segment itself; the sidecar bodies
+stay as they were captured.
 
 ## Trimming
 

@@ -38,6 +38,25 @@ let related = null;
 // losing the first batch would un-cover lists the popup already counted.
 const MAX_LIST_BATCHES = 8;
 
+// One popup click may fetch several missing definitions, one GET each; the
+// cap bounds a click, not the session, and a segment referencing more lists
+// than this through suppression alone has not been observed.
+const MAX_FETCHED_REFERENCES = 20;
+
+function emptyRelated(forListId) {
+  return {
+    forListId,
+    listBatches: [],
+    suppression: null,
+    membershipCounts: null,
+    // Definitions fetched on request for referenced lists the page never
+    // loaded, and the ids they were fetched for. Ids ride separately so a
+    // repeat click can skip work without parsing bodies.
+    fetchedLists: [],
+    fetchedListIds: [],
+  };
+}
+
 // ---------------------------------------------------------------- helpers
 
 /**
@@ -175,7 +194,7 @@ function storeSidecar(entry) {
   if (!forListId) return;
 
   if (!related || related.forListId !== forListId) {
-    related = { forListId, listBatches: [], suppression: null, membershipCounts: null };
+    related = emptyRelated(forListId);
   }
 
   if (entry.sidecarKind === SIDECAR_KIND.LIST_BATCHES) {
@@ -198,9 +217,15 @@ function storeSidecar(entry) {
 function readableRelated(current) {
   if (!current || current.domain !== CAPTURE_DOMAIN.LIST || !related) return null;
   if (!current.listId || related.forListId !== current.listId) return null;
-  if (!related.listBatches.length && !related.suppression && !related.membershipCounts) return null;
+  const empty =
+    !related.listBatches.length &&
+    !related.fetchedLists.length &&
+    !related.suppression &&
+    !related.membershipCounts;
+  if (empty) return null;
   return {
     listBatches: [...related.listBatches],
+    fetchedLists: [...related.fetchedLists],
     suppression: related.suppression,
     membershipCounts: related.membershipCounts,
   };
@@ -302,10 +327,29 @@ async function refresh() {
   const csrf = readCookie('csrf.app');
   if (!csrf) return { ok: false, error: REFRESH_ERROR.CSRF_UNREADABLE };
 
+  const answer = await authedGet(url, csrf);
+  if (!answer.ok) return answer;
+
+  // Only past every failure branch does the existing snapshot get replaced.
+  store({
+    kind: CAPTURE_KIND.REFRESH,
+    raw: answer.text,
+    url,
+    capturedAt: Date.now(),
+    ...stamp,
+  });
+
+  return { ok: true };
+}
+
+/**
+ * One authenticated same-origin GET, shared by Refresh and Fetch missing.
+ * Runs here rather than in the service worker so cookies ride along on a
+ * same-origin request with no cookies permission.
+ */
+async function authedGet(url, csrf) {
   let response;
   try {
-    // Runs here rather than in the service worker so cookies ride along on a
-    // same-origin request with no cookies permission.
     response = await fetch(url, {
       method: 'GET',
       credentials: 'include',
@@ -325,16 +369,61 @@ async function refresh() {
   const text = await response.text();
   if (!text) return { ok: false, error: REFRESH_ERROR.EMPTY };
 
-  // Only past every failure branch does the existing snapshot get replaced.
-  store({
-    kind: CAPTURE_KIND.REFRESH,
-    raw: text,
-    url,
-    capturedAt: Date.now(),
-    ...stamp,
-  });
+  return { ok: true, text };
+}
 
-  return { ok: true };
+// ------------------------------------------------- fetch missing references
+
+/**
+ * Fetch definitions for referenced lists the page itself never loaded.
+ *
+ * The observed gap this exists for: segments-ui hydrates full definitions
+ * only for lists referenced in the filters (through getBatch); lists
+ * referenced only in the suppression settings get their names resolved
+ * through crm-search and their definitions fetched never. The popup computes
+ * which references have no definition in the bundle and asks for exactly
+ * those ids; each becomes one user-initiated GET to the same definition
+ * endpoint every other capture uses, and each verbatim body lands beside the
+ * snapshot as a fetched sidecar.
+ *
+ * Per-id failures do not abort the rest: a bundle that grew by two of three
+ * beats one that refused to grow, and the popup reports which ids failed.
+ */
+async function fetchReferenced(listIds) {
+  const current = readable();
+  if (!current || current.domain !== CAPTURE_DOMAIN.LIST || !current.listId) {
+    return { ok: false, error: REFRESH_ERROR.NO_ID };
+  }
+
+  const wanted = (Array.isArray(listIds) ? listIds : [])
+    .map((id) => String(id))
+    .filter((id) => /^\d+$/.test(id) && id !== current.listId)
+    .slice(0, MAX_FETCHED_REFERENCES);
+  if (!wanted.length) return { ok: false, error: REFRESH_ERROR.NO_ID };
+
+  const csrf = readCookie('csrf.app');
+  if (!csrf) return { ok: false, error: REFRESH_ERROR.CSRF_UNREADABLE };
+
+  const ids = idsFromPageUrl(location.href);
+  if (!related || related.forListId !== current.listId) {
+    related = emptyRelated(current.listId);
+  }
+
+  let fetched = 0;
+  const failed = [];
+  for (const id of wanted) {
+    if (related.fetchedListIds.includes(id)) continue;
+    const answer = await authedGet(inbounddbListUrl(location.origin, id, ids.portalId), csrf);
+    if (!answer.ok) {
+      failed.push(id);
+      continue;
+    }
+    related.fetchedLists.push(answer.text);
+    related.fetchedListIds.push(id);
+    fetched += 1;
+  }
+
+  return { ok: true, fetched, failed };
 }
 
 // ---------------------------------------------------------------- popup
@@ -390,6 +479,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     case POPUP_MSG.REFRESH:
       refresh().then(
+        (result) => sendResponse(result),
+        (error) => sendResponse({ ok: false, error: REFRESH_ERROR.NETWORK, detail: String(error) }),
+      );
+      return true; // async sendResponse
+
+    case POPUP_MSG.FETCH_REFERENCED:
+      fetchReferenced(message.listIds).then(
         (result) => sendResponse(result),
         (error) => sendResponse({ ok: false, error: REFRESH_ERROR.NETWORK, detail: String(error) }),
       );
