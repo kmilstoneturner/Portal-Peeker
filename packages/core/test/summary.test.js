@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { summarize, countFilters, referencedListIds, listIdsInBatches } from '../src/summary.js';
+import { summarize, countFilters, referencedListIds, systemReferencedListIds, listIdsInBatches } from '../src/summary.js';
 
 const fixture = (name) =>
   readFileSync(fileURLToPath(new URL(`../__fixtures__/${name}`, import.meta.url)), 'utf8');
@@ -209,6 +209,60 @@ describe('referencedListIds', () => {
     expect(referencedListIds(null)).toEqual([]);
     expect(referencedListIds({})).toEqual([]);
     expect(referencedListIds({ filterBranch: 42, metadata: 'odd' })).toEqual([]);
+    expect(systemReferencedListIds(null)).toEqual([]);
+  });
+
+  it('predicts the secondary-suppression ids as system, from field provenance', () => {
+    // The live shape that taught this: suppressionLists carries a list the
+    // user picked (fetches fine); the *SecondaryListId fields carry
+    // HubSpot-materialized internals (answer 404 to a definition fetch).
+    const list = {
+      listId: 19,
+      processingType: 'DYNAMIC',
+      metadata: {
+        membershipSettings: {
+          strategicSegmentSettings: { marketSegmentId: null, marketSegmentListId: null },
+          suppressionSettings: {
+            suppressionLists: [20],
+            secondarySuppressionListId: 21,
+            individualSuppressionSecondaryListId: null,
+            emailDomainSuppressionSecondaryListId: 22,
+          },
+        },
+      },
+      filterBranch: {
+        filterBranchOperator: 'OR',
+        filters: [],
+        filterBranches: [
+          { filters: [{ filterType: 'IN_LIST', listId: 25 }], filterBranches: [] },
+        ],
+      },
+    };
+    expect(referencedListIds(list)).toEqual(['20', '21', '22', '25']);
+    expect(systemReferencedListIds(list)).toEqual(['21', '22']);
+  });
+
+  it('treats an id as a user reference the moment anything user-facing names it', () => {
+    // If a secondary field and a filter both point at the same list, the
+    // filter proves it is reachable, so it is not predicted unfetchable.
+    const list = {
+      listId: 1,
+      processingType: 'DYNAMIC',
+      metadata: {
+        membershipSettings: {
+          suppressionSettings: { suppressionLists: [], secondarySuppressionListId: 30 },
+        },
+      },
+      filterBranch: { filters: [{ filterType: 'IN_LIST', listId: 30 }], filterBranches: [] },
+    };
+    expect(referencedListIds(list)).toEqual(['30']);
+    expect(systemReferencedListIds(list)).toEqual([]);
+  });
+
+  it('reports no system references for the fixture, whose secondary fields are null', () => {
+    const summary = summarize(LIST_GET);
+    expect(summary.systemReferencedListIds).toEqual([]);
+    expect(summarize(LOAD_V3).systemReferencedListIds).toBeNull();
   });
 });
 

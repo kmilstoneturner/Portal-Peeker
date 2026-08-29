@@ -556,22 +556,26 @@ function render(status) {
       view.fetchRefs.hidden = true;
     } else {
       const captured = new Set(listIdsInBatches(relatedBodies(status.related)));
-      const unavailable = refs.filter(
-        (id) => !captured.has(id) && (status.related?.unfetchableListIds || []).includes(id),
+      // "System" ids are the ones no fetch can serve, known two ways: field
+      // provenance predicts them upfront (the *SecondaryListId fields name
+      // HubSpot-materialized internals), and a remembered 404 confirms one
+      // the hard way (that also catches a deleted user list). Both are shown
+      // as system rather than dangled as fetchable.
+      const learned404 = status.related?.unfetchableListIds || [];
+      const predicted = summary.systemReferencedListIds || [];
+      const system = refs.filter(
+        (id) => !captured.has(id) && (predicted.includes(id) || learned404.includes(id)),
       );
       const have = refs.filter((id) => captured.has(id)).length;
-      const missing = refs.length - have - unavailable.length;
+      const missing = refs.length - have - system.length;
 
-      // "Unavailable" is a fact learned from HubSpot itself: those ids
-      // answered 404, so no fetchable definition exists (system-managed
-      // suppression internals, or a reference to a deleted list). Saying so
-      // beats dangling a Fetch missing that can never succeed.
       view.refs.textContent =
         `${refs.length} list${refs.length === 1 ? '' : 's'} (${have} captured` +
-        `${unavailable.length ? `, ${unavailable.length} unavailable` : ''})`;
-      view.refs.title = unavailable.length
-        ? `List${unavailable.length === 1 ? '' : 's'} ${unavailable.join(', ')} answered 404: no fetchable definition exists. ` +
-          'HubSpot manages its secondary suppression lists internally; their effect is already in the suppression settings.'
+        `${system.length ? `, ${system.length} system` : ''})`;
+      view.refs.title = system.length
+        ? `List${system.length === 1 ? '' : 's'} ${system.join(', ')}: HubSpot-managed, with no fetchable definition ` +
+          '(named by a secondary-suppression field, or answered 404). Their effect is already spelled out in the ' +
+          'suppression settings this export carries.'
         : '';
       view.fetchRefs.hidden = missing <= 0;
       view.fetchRefs.disabled = false;
@@ -1043,7 +1047,10 @@ view.fetchRefs.addEventListener('click', async () => {
   const refs = summary.referencedListIds || [];
   const captured = new Set(listIdsInBatches(relatedBodies(snapshot.related)));
   const unfetchable = snapshot.related?.unfetchableListIds || [];
-  const missing = refs.filter((id) => !captured.has(id) && !unfetchable.includes(id));
+  const predicted = summary.systemReferencedListIds || [];
+  const missing = refs.filter(
+    (id) => !captured.has(id) && !unfetchable.includes(id) && !predicted.includes(id),
+  );
   if (!missing.length) return;
 
   view.fetchRefs.disabled = true;
