@@ -711,7 +711,9 @@ describe('fetching referenced definitions the page never loaded', () => {
     h.setRefresh(async () => ({ ok: false, status: 403, text: async () => 'nope' }));
 
     await h.askPopup('pp:fetch-referenced', { listIds: ['21'] });
-    expect((await h.askPopup('pp:status')).related.unfetchableListIds).toEqual([]);
+    // Nothing was learned and nothing was stored, so there is no related
+    // struct at all yet, and the popup keeps offering the fetch.
+    expect((await h.askPopup('pp:status')).related).toBeNull();
 
     h.setRefresh(async (url) => ({ ok: true, status: 200, text: async () => definitionFor(url) }));
     const retry = await h.askPopup('pp:fetch-referenced', { listIds: ['21'] });
