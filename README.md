@@ -149,13 +149,13 @@ The same discipline applies across pages: a list definition fetched by the workf
 (goal and suppression lists) or by another list's page never takes the snapshot; the page
 URL names the subject, and only the subject's definition is the capture.
 
-## What v1.4 adds
+### Include referenced lists
 
-**Include referenced lists.** A segment names the lists it depends on — `IN_LIST` filters,
-association branches, suppression settings — by id only, so a bare export answers "what is
-it filtering against" one hop deep and then stops. But HubSpot's own page already fetches
-the missing hop: alongside the definition it loads `getBatch` (an array of full definitions
-for every referenced list), the `/suppression` settings, and the membership counts.
+A segment names the lists it depends on — `IN_LIST` filters, association branches,
+suppression settings — by id only, so a bare export answers "what is it filtering against"
+one hop deep and then stops. But HubSpot's own page already fetches the missing hop:
+alongside the definition it loads `getBatch` (an array of full definitions for every
+referenced list), the `/suppression` settings, and the membership counts.
 
 Portal Peeker now keeps those responses **beside** the capture — never in its place, tied
 to the segment the page URL names, discarded when you move to another list — and a new
