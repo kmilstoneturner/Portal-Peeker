@@ -415,7 +415,11 @@ async function fetchReferenced(listIds) {
     if (related.fetchedListIds.includes(id)) continue;
     const answer = await authedGet(inbounddbListUrl(location.origin, id, ids.portalId), csrf);
     if (!answer.ok) {
-      failed.push(id);
+      // The status is the diagnosis: a 404 here has meant a list that exists
+      // only as a system-managed internal (the secondary suppression ids),
+      // which reads very differently from a 403 or a network drop. The popup
+      // shows it verbatim.
+      failed.push({ id, status: answer.status != null ? answer.status : answer.error });
       continue;
     }
     related.fetchedLists.push(answer.text);

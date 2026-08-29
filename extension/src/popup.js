@@ -1041,9 +1041,16 @@ view.fetchRefs.addEventListener('click', async () => {
 
   await load();
   const failed = Array.isArray(result.failed) ? result.failed : [];
+  // Each failure carries what HubSpot answered, because the number is the
+  // diagnosis: 404 has meant a system-managed internal list with no fetchable
+  // definition, which is a different situation from a 403 or a dropped
+  // connection.
+  const named = failed.map((f) =>
+    f && typeof f === 'object' ? `list ${f.id} (${f.status})` : `list ${f}`,
+  );
   say(
     failed.length
-      ? `Fetched ${num(result.fetched)}; list${failed.length === 1 ? '' : 's'} ${failed.join(', ')} could not be fetched.`
+      ? `Fetched ${num(result.fetched)}; could not fetch ${named.join(', ')}.`
       : `Fetched ${num(result.fetched)} referenced list definition${result.fetched === 1 ? '' : 's'}.`,
     failed.length > 0,
   );

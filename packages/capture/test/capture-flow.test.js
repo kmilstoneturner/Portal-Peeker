@@ -681,7 +681,9 @@ describe('fetching referenced definitions the page never loaded', () => {
     const result = await h.askPopup('pp:fetch-referenced', { listIds: ['20', '21', '22'] });
     expect(result.ok).toBe(true);
     expect(result.fetched).toBe(2);
-    expect(result.failed).toEqual(['21']);
+    // The status rides along: it is the difference between "system-internal
+    // list with no fetchable definition" and "you were not allowed".
+    expect(result.failed).toEqual([{ id: '21', status: 403 }]);
     expect((await h.askPopup('pp:status')).related.fetchedLists).toHaveLength(2);
   });
 
