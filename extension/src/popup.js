@@ -230,7 +230,12 @@ function relatedFor(key, text, pieces) {
  */
 function relatedStateFor(domain, source) {
   if (domain !== CAPTURE_DOMAIN.LIST) return { ok: false, reason: 'Segment captures only' };
-  if (!source || !source.related) {
+  // The bundle needs bodies. A related struct that only remembers which ids
+  // answered 404 informs the Referenced row but gives an export nothing.
+  const r = source && source.related;
+  const hasBodies =
+    r && (relatedBodies(r).length > 0 || r.suppression != null || r.membershipCounts != null);
+  if (!hasBodies) {
     return {
       ok: false,
       reason:
@@ -547,12 +552,28 @@ function render(status) {
     const refs = summary.referencedListIds || [];
     if (refs.length === 0) {
       view.refs.textContent = 'none';
+      view.refs.title = '';
       view.fetchRefs.hidden = true;
     } else {
       const captured = new Set(listIdsInBatches(relatedBodies(status.related)));
+      const unavailable = refs.filter(
+        (id) => !captured.has(id) && (status.related?.unfetchableListIds || []).includes(id),
+      );
       const have = refs.filter((id) => captured.has(id)).length;
-      view.refs.textContent = `${refs.length} list${refs.length === 1 ? '' : 's'} (${have} captured)`;
-      view.fetchRefs.hidden = have >= refs.length;
+      const missing = refs.length - have - unavailable.length;
+
+      // "Unavailable" is a fact learned from HubSpot itself: those ids
+      // answered 404, so no fetchable definition exists (system-managed
+      // suppression internals, or a reference to a deleted list). Saying so
+      // beats dangling a Fetch missing that can never succeed.
+      view.refs.textContent =
+        `${refs.length} list${refs.length === 1 ? '' : 's'} (${have} captured` +
+        `${unavailable.length ? `, ${unavailable.length} unavailable` : ''})`;
+      view.refs.title = unavailable.length
+        ? `List${unavailable.length === 1 ? '' : 's'} ${unavailable.join(', ')} answered 404: no fetchable definition exists. ` +
+          'HubSpot manages its secondary suppression lists internally; their effect is already in the suppression settings.'
+        : '';
+      view.fetchRefs.hidden = missing <= 0;
       view.fetchRefs.disabled = false;
     }
   }
@@ -1021,7 +1042,8 @@ view.fetchRefs.addEventListener('click', async () => {
   const summary = summaryFor(snapshot.raw);
   const refs = summary.referencedListIds || [];
   const captured = new Set(listIdsInBatches(relatedBodies(snapshot.related)));
-  const missing = refs.filter((id) => !captured.has(id));
+  const unfetchable = snapshot.related?.unfetchableListIds || [];
+  const missing = refs.filter((id) => !captured.has(id) && !unfetchable.includes(id));
   if (!missing.length) return;
 
   view.fetchRefs.disabled = true;
