@@ -81,8 +81,13 @@ export function findFlow(root) {
     if (node.flowId != null && typeof node.flowId !== 'object') {
       const looksLikeFlow =
         'actions' in node || 'name' in node || 'isClassicWorkflow' in node;
-      if (looksLikeFlow) return { flow: node, direct: node === root, path };
-      if (!fallback) fallback = { flow: node, direct: false, path };
+      // corroborated says whether the flowId had flow-shaped company. The
+      // fallback exists for envelopes nobody has pinned down, but a bare
+      // flowId can also be a stray key inside something that is not a flow at
+      // all (a segment's workflow-membership filter carries one), so the
+      // caller gets to weigh a fallback against other evidence.
+      if (looksLikeFlow) return { flow: node, direct: node === root, path, corroborated: true };
+      if (!fallback) fallback = { flow: node, direct: false, path, corroborated: false };
     }
 
     for (const [key, value] of Object.entries(node)) {
@@ -194,10 +199,13 @@ export function referencedListIds(list) {
       if (Array.isArray(node.filterBranches)) queue.push(...node.filterBranches);
     }
 
-    const suppression =
-      list.metadata && list.metadata.membershipSettings
-        ? list.metadata.membershipSettings.suppressionSettings
-        : null;
+    const membership =
+      list.metadata && list.metadata.membershipSettings ? list.metadata.membershipSettings : null;
+
+    const strategic = membership ? membership.strategicSegmentSettings : null;
+    if (strategic && typeof strategic === 'object') add(strategic.marketSegmentListId);
+
+    const suppression = membership ? membership.suppressionSettings : null;
     if (suppression && typeof suppression === 'object') {
       const entries = Array.isArray(suppression.suppressionLists) ? suppression.suppressionLists : [];
       for (const entry of entries) {
@@ -276,15 +284,18 @@ export function summarize(rawText) {
     return { ...EMPTY, reason: 'body is not JSON' };
   }
 
-  // Flows first, and it matters: a workflow's associatedLists carry listId and
-  // filterBranch fields, so a payload that has a flow in it is a flow capture
-  // whatever else it mentions. A list payload has no flowId anywhere, so the
-  // order costs the list path nothing.
+  // Flows first, but only on real evidence. A corroborated flow wins
+  // outright: workflows legitimately carry listId and filterBranch deep
+  // inside associatedLists, so a payload with a real flow in it is a flow
+  // capture whatever else it mentions. findFlow's uncorroborated fallback
+  // does not get that priority, because a bare flowId can live inside a
+  // segment's own filters (a workflow-membership filter carries one), and a
+  // corroborated list is the better reading of such a payload.
   const located = findFlow(parsed);
-  if (!located) {
+  if (!located || !located.corroborated) {
     const foundList = findList(parsed);
     if (foundList) return summarizeList(foundList.list, parsed);
-    return { ...EMPTY, reason: 'no flow or list object found in response' };
+    if (!located) return { ...EMPTY, reason: 'no flow or list object found in response' };
   }
 
   const flow = located.flow;

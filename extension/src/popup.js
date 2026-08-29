@@ -252,6 +252,12 @@ function contextedFor(key, text, meta) {
   return variants.get(key);
 }
 
+// A checkbox is obeyed only when it is both ticked and applicable. The
+// widgets keep the user's stored preference even while disabled or hidden for
+// the capture on screen, so viewing a segment can never cost a workflow
+// preference, and vice versa.
+const trimWanted = () => view.trim.checked && !view.trim.disabled;
+const stripWanted = () => view.strip.checked && !view.strip.disabled;
 const numbersWanted = () => view.numbers.checked && !view.numbers.disabled;
 const relatedWanted = () => view.related.checked && !view.related.disabled;
 const contextWanted = () => view.context.checked && !view.context.disabled;
@@ -327,8 +333,8 @@ function buildExport(raw, source, cached = false) {
   };
   const stageKey = () => marks.join('-') || 'raw';
 
-  if (view.trim.checked) {
-    const stripHtml = view.strip.checked;
+  if (trimWanted()) {
+    const stripHtml = stripWanted();
     const result = cached ? trimFor(raw, stripHtml) : trim(raw, { stripHtml });
     if (!result.ok) return { failed: 'trim' };
 
@@ -425,24 +431,32 @@ function renderSizes() {
 }
 
 function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, relatedState) {
-  // Trimming, stripping, and numbering are workflow features: their rules and
-  // their walker only know flow structure. On a segment capture they are
-  // withdrawn as not-applicable rather than as a failure, and the title says
-  // which one it is.
+  // The box swaps by capture type. Trimming, stripping, and numbering are
+  // workflow features (their rules and their walker only know flow
+  // structure), and bundling referenced lists is a segment feature, so each
+  // capture shows only the options that can apply to it, rather than a column
+  // of grey checkboxes explaining the other domain. The hidden ones are also
+  // disabled, which is what buildExport actually consults.
+  //
+  // Nothing here writes to a checkbox's checked state: the widgets carry the
+  // user's stored preference, and a disabled box is simply not obeyed (the
+  // *Wanted() guards). Forcing one off here would get persisted by the next
+  // toggle and silently erase a preference for the other domain.
   const isList = domain === CAPTURE_DOMAIN.LIST;
-  const WORKFLOW_ONLY = 'Workflow captures only';
+
+  view.trim.parentElement.hidden = isList;
+  view.strip.parentElement.hidden = isList;
+  view.numbers.parentElement.hidden = isList;
+  view.related.parentElement.hidden = !isList;
 
   view.trim.disabled = !trimmable || isList;
   view.trim.parentElement.classList.toggle('is-disabled', view.trim.disabled);
-  view.trim.parentElement.title = isList ? WORKFLOW_ONLY : '';
-  if (view.trim.disabled) view.trim.checked = false;
 
   // Stripping HTML rewrites values, which only a trim's output can absorb, so
   // it is the trim's sub-option and the only one.
-  const onTopOfTrim = !view.trim.disabled && view.trim.checked;
+  const onTopOfTrim = trimWanted();
   view.strip.disabled = !onTopOfTrim;
   view.strip.parentElement.classList.toggle('is-disabled', !onTopOfTrim);
-  view.strip.parentElement.title = isList ? WORKFLOW_ONLY : '';
 
   // Numbering stands on its own: it inserts text and rewrites nothing, so it
   // works on raw bytes. It is withdrawn only when the graph has a shape the
@@ -451,20 +465,19 @@ function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, re
   const numbersOk = Boolean(numbersCheck && numbersCheck.ok) && !isList;
   view.numbers.disabled = !numbersOk;
   view.numbers.parentElement.classList.toggle('is-disabled', !numbersOk);
-  view.numbers.parentElement.title = numbersOk
-    ? ''
-    : isList
-      ? WORKFLOW_ONLY
+  view.numbers.parentElement.title =
+    numbersOk || isList
+      ? ''
       : `Editor numbers unavailable: ${numbersCheck ? numbersCheck.reason : 'no capture'}`;
 
-  // Bundling referenced lists is the segment mirror of the workflow options:
-  // available only on a list capture, and only when the bridge actually holds
-  // bodies captured beside this segment. The title carries the reason either
-  // way, so a grey checkbox always says why it is grey.
+  // Bundling is available only when the bridge actually holds bodies captured
+  // beside this segment. The title carries the reason when it does not, so a
+  // grey checkbox always says why it is grey.
   const relatedOk = Boolean(relatedState && relatedState.ok);
   view.related.disabled = !relatedOk;
   view.related.parentElement.classList.toggle('is-disabled', !relatedOk);
-  view.related.parentElement.title = relatedOk ? '' : relatedState ? relatedState.reason : 'no capture';
+  view.related.parentElement.title =
+    relatedOk || !isList ? '' : relatedState ? relatedState.reason : 'no capture';
 
   // The context block rides on nothing: it is one inserted key, so it works on
   // a trimmed export and on raw bytes alike, for a segment as for a workflow.
@@ -474,6 +487,9 @@ function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, re
   view.context.disabled = !contextOk;
   view.context.parentElement.classList.toggle('is-disabled', !contextOk);
   view.context.parentElement.title = contextOk ? '' : `AI context unavailable: ${contextCheck.reason}`;
+
+  // A pinned tip belonging to a row that just hid would float over nothing.
+  for (const tip of tips) tip.close();
 
   return reason;
 }
@@ -914,10 +930,11 @@ view.download.addEventListener('click', async () => {
   }
 
   // The suffix is the only marker that a file is not a verbatim capture. The
-  // extension adds exactly two keys in band, uiNumber and _aiContext, each
-  // behind its own checkbox, and a file carrying one always carries the
-  // matching suffix. Segment files carry a list- prefix on the id, because a
-  // bare number in a filename no longer says which kind of export it is.
+  // extension adds exactly three keys in band, uiNumber, _related, and
+  // _aiContext, each behind its own checkbox, and a file carrying one always
+  // carries the matching suffix. Segment files carry a list- prefix on the
+  // id, because a bare number in a filename no longer says which kind of
+  // export it is.
   const stem =
     domainOf(payload, summaryFor(payload.raw)) === CAPTURE_DOMAIN.LIST
       ? `list-${payload.listId || 'unknown'}`

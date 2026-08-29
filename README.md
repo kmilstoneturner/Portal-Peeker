@@ -137,10 +137,13 @@ What carries over and what does not, honestly:
 
 - **AI context** works on a segment capture. The block names the segment instead of a
   workflow, and explains the `filterBranch` tree instead of `actionId`.
-- **Trim, HTML strip, and editor numbers are workflow features** and are disabled on a
-  segment capture, labeled as such. Every rule in the trimmer is about workflow structure;
-  running untested rules against a different schema would be exactly the kind of guessing
-  this project refuses to do. A segment payload is small and mostly filter logic anyway.
+- **Trim, HTML strip, and editor numbers are workflow features**, so the options box swaps
+  by capture type: a segment shows only the options that can apply to it (the referenced
+  lists bundle and the AI context block), and a workflow shows the original four. Every
+  rule in the trimmer is about workflow structure; running untested rules against a
+  different schema would be exactly the kind of guessing this project refuses to do. A
+  segment payload is small and mostly filter logic anyway. Hidden options keep their
+  stored state, so viewing a segment never costs a workflow preference.
 
 The same discipline applies across pages: a list definition fetched by the workflow editor
 (goal and suppression lists) or by another list's page never takes the snapshot; the page
@@ -427,10 +430,12 @@ pointing at documents.
   the same path is captured as a save, and if HubSpot saves through some other path, the
   capture simply stays on the last load — Refresh after saving returns the saved state
   either way.
-- On the newer `/lists/{portalId}` and `/segments/{portalId}` URL roots, only the portal
-  can be read from the page URL (two bare numbers would make which-is-the-list a guess),
-  so the SPA staleness guard cannot fire there and Fetch is not offered. The
-  `objectLists` pages, where the list ID is unambiguous, have both.
+- On the newer `/lists/{portalId}/{listId}` and `/segments/{portalId}/{listId}` URL
+  roots, the number after the portal is read as the list ID provisionally: unlike the
+  `objectLists` shape, it has not been observed live. The asymmetry of the failure modes
+  decides it: a wrong guess makes the guards hide a valid capture, which a reload
+  recovers, while reading nothing would leave the subject-vs-hydration guard inert and
+  let a referenced list's definition silently take the open segment's place.
 - The API name annotation reads HubSpot's own markup, which carries no stability promise. If
   HubSpot changes it the names stop appearing. That is the intended failure: the annotation
   is withdrawn rather than guessed at. On the record-page surfaces that put no name in the

@@ -132,6 +132,37 @@ describe('summarize: segment (list) capture', () => {
     expect(result.domain).toBe('flow');
     expect(result.flowId).toBe('100');
   });
+
+  it('a segment that references a workflow is still a list capture', () => {
+    // The mirror of the case above: a workflow-membership filter carries a
+    // bare flowId, which is a stray key inside a filter, not a flow. The
+    // corroborated list must beat findFlow's uncorroborated fallback, at any
+    // nesting depth.
+    const filter = { filterType: 'WORKFLOW', flowId: 555, operator: 'ENROLLED' };
+    for (const branch of [
+      { filterBranchOperator: 'OR', filters: [filter], filterBranches: [] },
+      {
+        filterBranchOperator: 'OR',
+        filters: [],
+        filterBranches: [{ filterBranchOperator: 'AND', filters: [filter], filterBranches: [] }],
+      },
+    ]) {
+      const raw = JSON.stringify({
+        portalId: 12345678,
+        listId: 4242,
+        listVersion: 1,
+        processingType: 'DYNAMIC',
+        name: 'Enrolled in nurture flow',
+        filterBranch: branch,
+      });
+      const result = summarize(raw);
+      expect(result.domain).toBe('list');
+      expect(result.recognized).toBe(true);
+      expect(result.listId).toBe('4242');
+      expect(result.name).toBe('Enrolled in nurture flow');
+      expect(result.filterCount).toBe(1);
+    }
+  });
 });
 
 describe('referencedListIds', () => {
@@ -141,6 +172,7 @@ describe('referencedListIds', () => {
       processingType: 'DYNAMIC',
       metadata: {
         membershipSettings: {
+          strategicSegmentSettings: { marketSegmentId: null, marketSegmentListId: 15 },
           suppressionSettings: {
             suppressionLists: [9, { listId: 11 }],
             secondarySuppressionListId: 13,
@@ -166,7 +198,7 @@ describe('referencedListIds', () => {
         ],
       },
     };
-    expect(referencedListIds(list)).toEqual(['5', '7', '9', '11', '13']);
+    expect(referencedListIds(list)).toEqual(['5', '7', '9', '11', '13', '15']);
   });
 
   it('reports the fixture pair the batch fixture covers', () => {

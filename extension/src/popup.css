@@ -261,6 +261,14 @@ body {
   cursor: default;
 }
 
+/* Same story as .row above: display: flex on .check beats the UA's [hidden]
+   rule. The options box swaps by capture type — workflow options hide on a
+   segment capture and the segment bundle hides on a workflow — so this has to
+   actually hide. */
+.check[hidden] {
+  display: none;
+}
+
 /* The info buttons explain the two in-band additions (uiNumber, _aiContext)
    without costing popup real estate. */
 .info {

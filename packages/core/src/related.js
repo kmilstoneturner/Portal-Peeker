@@ -9,45 +9,28 @@
 // This module puts those bodies into the file, next to the definition, so the
 // whole answer travels together.
 //
-// Same construction discipline as ai-context.js, for the same reason: the
-// export with the checkbox off is HubSpot's raw bytes, and the one with it on
-// must degrade back to them by deleting a single key. So the key is spliced
-// as text, never parsed-and-reserialized, and every embedded body is included
-// verbatim: byte-for-byte the response HubSpot sent, wrapped but never
-// rewritten. Each body is still parsed once as a validity check whose result
-// is thrown away, because embedding a body that is not JSON would corrupt the
-// whole document, and a corrupt export is worse than a withdrawn option.
+// Same construction discipline as ai-context.js, sharing root-splice.js so it
+// is the same mechanism, not a lookalike: the export with the checkbox off is
+// HubSpot's raw bytes, and the one with it on must degrade back to them by
+// deleting a single key. So the key is spliced as text, never
+// parsed-and-reserialized, and every embedded body is included verbatim:
+// byte-for-byte the response HubSpot sent, wrapped but never rewritten. Each
+// body is still parsed once as a validity check whose result is thrown away,
+// because embedding a body that is not JSON would corrupt the whole document,
+// and a corrupt export is worse than a withdrawn option.
+
+import { checkRootObject, spliceFirstKey } from './root-splice.js';
 
 const RELATED_KEY = '_related';
 
 /**
- * Whether a body can carry a _related key at all.
- *
- * Parses to find out and discards the result. Never throws.
+ * Whether a body can carry a _related key at all. Never throws.
  *
  * @param {string} jsonText
  * @returns {{ok: boolean, reason: string|null}}
  */
 export function checkRelated(jsonText) {
-  if (typeof jsonText !== 'string' || jsonText.trim() === '') {
-    return { ok: false, reason: 'empty body' };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return { ok: false, reason: 'body is not JSON' };
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, reason: 'response root is not a JSON object' };
-  }
-  if (Object.hasOwn(parsed, RELATED_KEY)) {
-    // Either the file has already been through this extension, or HubSpot has
-    // started shipping the key. Same posture as the context block: step aside
-    // rather than overwrite.
-    return { ok: false, reason: `payload already carries a ${RELATED_KEY} field` };
-  }
-  return { ok: true, reason: null };
+  return checkRootObject(jsonText, RELATED_KEY, 'a');
 }
 
 const parses = (text) => {
@@ -111,13 +94,6 @@ export function addRelated(jsonText, pieces) {
 
   if (members.length === 0) return refuse('no related captures to include');
 
-  // Same splice mechanics as ai-context.js, and safe for the same reason: the
-  // parse in checkRelated succeeded with an object at the root, so only JSON
-  // whitespace can precede the root brace.
-  const at = jsonText.indexOf('{') + 1;
-  const rest = jsonText.slice(at);
-  const emptyRoot = /^[ \t\n\r]*\}/.test(rest);
-  const inserted = `"${RELATED_KEY}":{${members.join(',')}}${emptyRoot ? '' : ','}`;
-
-  return { ok: true, output: jsonText.slice(0, at) + inserted + rest, reason: null, inserted };
+  const { output, inserted } = spliceFirstKey(jsonText, `"${RELATED_KEY}":{${members.join(',')}}`);
+  return { ok: true, output, reason: null, inserted };
 }

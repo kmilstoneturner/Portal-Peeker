@@ -482,6 +482,23 @@ describe('segment capture, end to end on a list page', () => {
     expect(status.hasCapture).toBe(true);
     expect(status.domain).toBe('list');
   });
+
+  it('guards the subject on the newer segments root the same way', async () => {
+    // The provisional id read from /segments/{portal}/{listId} is what lets
+    // the hydration guard fire here at all.
+    const root = harness({ url: 'https://app.hubspot.com/segments/12345678/4242' });
+    root.setNativeFetch(async () => okResponse(JSON.stringify({ listId: 999, processingType: 'DYNAMIC' })));
+    await root.pageFetch('/api/inbounddb-lists/v1/lists/999?portalId=12345678');
+    await flush();
+    expect((await root.askPopup('pp:status')).hasCapture).toBe(false);
+
+    root.setNativeFetch(async () => okResponse(LIST_BODY));
+    await root.pageFetch(LIST_GET);
+    await flush();
+    const status = await root.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.listId).toBe('4242');
+  });
 });
 
 describe('sidecar captures beside a segment', () => {

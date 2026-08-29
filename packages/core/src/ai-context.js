@@ -13,13 +13,13 @@
 // JSON.stringify would silently re-encode them: number formats, escapes, and
 // key order are all round-trip hazards. Splicing keeps the guarantee provable
 // in the other direction instead: the insertion is one contiguous span, so
-// removing it restores the previous text byte for byte.
-//
-// The text is still parsed once, as a validity check whose result is thrown
-// away. That check is what makes indexOf('{') safe: in a JSON document whose
-// root is an object, nothing but whitespace can precede the root brace, since
-// JSON has no comments and no prologue. Anything that fails the check withdraws
-// the whole option rather than producing a file with a half-true block in it.
+// removing it restores the previous text byte for byte. The check and the
+// splice themselves live in root-splice.js, shared with the related-captures
+// bundle, so the two insertions cannot drift apart. Anything that fails the
+// check withdraws the whole option rather than producing a file with a
+// half-true block in it.
+
+import { checkRootObject, spliceFirstKey } from './root-splice.js';
 
 const CONTEXT_KEY = '_aiContext';
 
@@ -218,25 +218,7 @@ export function buildAiContext(meta = {}) {
  * @returns {{ok: boolean, reason: string|null}}
  */
 export function checkAiContext(jsonText) {
-  if (typeof jsonText !== 'string' || jsonText.trim() === '') {
-    return { ok: false, reason: 'empty body' };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return { ok: false, reason: 'body is not JSON' };
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, reason: 'response root is not a JSON object' };
-  }
-  if (Object.hasOwn(parsed, CONTEXT_KEY)) {
-    // Either the file has already been through this extension, or HubSpot has
-    // started shipping the key. Overwriting would destroy data and two blocks
-    // cannot both be the first key, so the only honest move is to step aside.
-    return { ok: false, reason: `payload already carries an ${CONTEXT_KEY} field` };
-  }
-  return { ok: true, reason: null };
+  return checkRootObject(jsonText, CONTEXT_KEY, 'an');
 }
 
 /**
@@ -263,16 +245,6 @@ export function addAiContext(jsonText, contextObject) {
   }
   if (typeof serialized !== 'string') return refuse('context block would not serialize');
 
-  // Safe because the parse above succeeded with an object at the root: the only
-  // characters that can precede the root brace are JSON whitespace. indexOf
-  // rather than a regex on purpose, since the JS \s class matches characters
-  // (U+FEFF among them) that the JSON grammar does not.
-  const at = jsonText.indexOf('{') + 1;
-  const rest = jsonText.slice(at);
-  // {} has no members to separate, so no comma. Rare, and invalid JSON without
-  // this branch.
-  const emptyRoot = /^[ \t\n\r]*\}/.test(rest);
-  const inserted = `"${CONTEXT_KEY}":${serialized}${emptyRoot ? '' : ','}`;
-
-  return { ok: true, output: jsonText.slice(0, at) + inserted + rest, reason: null, inserted };
+  const { output, inserted } = spliceFirstKey(jsonText, `"${CONTEXT_KEY}":${serialized}`);
+  return { ok: true, output, reason: null, inserted };
 }

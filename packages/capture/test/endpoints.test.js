@@ -75,6 +75,14 @@ describe('classifyUrl: segments (lists)', () => {
     expect(classifyUrl('/api/inbounddb-lists/v1/lists/4242', LIST_PAGE, undefined, 'GET').kind).toBe('load');
   });
 
+  it('does not capture verbs that cannot answer with a definition', () => {
+    // A DELETE's acknowledgment captured as a "save" would overwrite the one
+    // copy of a list that no longer exists in HubSpot.
+    for (const method of ['DELETE', 'delete', 'HEAD', 'OPTIONS']) {
+      expect(classifyUrl('/api/inbounddb-lists/v1/lists/4242', LIST_PAGE, undefined, method), method).toBeNull();
+    }
+  });
+
   it('classifies the responses that load beside a definition as sidecars, never subjects', () => {
     // All three fired alongside the definition GET when a list opened. None of
     // them is the definition, and treating any of them as the subject would
@@ -230,18 +238,26 @@ describe('idsFromPageUrl: segments (lists)', () => {
     expect(ids.listId).toBeNull();
   });
 
-  it('reads only the portal from the newer lists and segments roots', () => {
-    // Two bare numbers in a row would be a guess about which one is the list.
-    // A wrong guess would hide a valid capture, so only the portal is read.
+  it('reads the number after the portal as the list on the newer lists and segments roots', () => {
+    // Provisional, and deliberate: a wrong guess makes the guards hide a
+    // valid capture, which a reload recovers; reading nothing would leave the
+    // subject-vs-hydration guard inert, and a referenced list could silently
+    // take the open segment's place.
     for (const href of [
-      'https://app.hubspot.com/lists/12345678',
       'https://app.hubspot.com/segments/12345678/4242',
+      'https://app.hubspot.com/segments/12345678/4242/filters',
+      'https://app.hubspot.com/lists/12345678/4242',
     ]) {
       const ids = idsFromPageUrl(href);
       expect(ids.portalId, href).toBe('12345678');
-      expect(ids.listId, href).toBeNull();
+      expect(ids.listId, href).toBe('4242');
     }
-    expect(idsFromPageUrl('https://app.hubspot.com/lists/12345678').app).toBe('lists');
+
+    // The index pages carry only the portal.
+    const index = idsFromPageUrl('https://app.hubspot.com/lists/12345678');
+    expect(index.app).toBe('lists');
+    expect(index.portalId).toBe('12345678');
+    expect(index.listId).toBeNull();
     expect(idsFromPageUrl('https://app.hubspot.com/segments/12345678/4242').app).toBe('segments');
   });
 

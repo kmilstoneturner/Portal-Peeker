@@ -105,10 +105,15 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
 
   const list = patterns.list ? path.match(patterns.list) : null;
   if (list) {
-    const writes = typeof method === 'string' && method.toUpperCase() !== 'GET';
+    // A GET answers with the definition, and a PUT, POST, or PATCH would
+    // answer with the updated one. Any other verb on this path is not a
+    // definition: a DELETE's acknowledgment body, captured as a "save", would
+    // overwrite the one copy of a list that no longer exists in HubSpot.
+    const verb = typeof method === 'string' ? method.toUpperCase() : 'GET';
+    if (!['GET', 'PUT', 'POST', 'PATCH'].includes(verb)) return null;
     return {
       role: 'subject',
-      kind: writes ? CAPTURE_KIND.SAVE : CAPTURE_KIND.LOAD,
+      kind: verb === 'GET' ? CAPTURE_KIND.LOAD : CAPTURE_KIND.SAVE,
       domain: CAPTURE_DOMAIN.LIST,
       flowId: null,
       listId: list[1],
@@ -189,9 +194,14 @@ export function inbounddbListUrl(origin, listId, portalId, { clientTimeoutMs = 1
  *
  * `app` names the URL root that matched: 'workflows', 'contacts', 'lists', or
  * 'segments'. The last two are HubSpot's newer roots for the renamed Lists
- * tool (its bundle calls itself segments-ui); only the portal is read from
- * them, because guessing which of two bare numbers is the list would let a
- * wrong guess hide a valid capture.
+ * tool (its bundle calls itself segments-ui). On those, the number after the
+ * portal is read as the list id, provisionally: it has not been observed live
+ * the way the objectLists shape has. The asymmetry of the failure modes is
+ * what decides it. If the guess is wrong, the guards hide a valid capture and
+ * a reload recovers; if no id is read at all, the subject-vs-hydration guard
+ * in the bridge cannot fire, and a referenced list's definition could take
+ * the open segment's place in the snapshot, which nothing recovers because
+ * nothing looks wrong.
  */
 export function idsFromPageUrl(href) {
   const out = {
@@ -231,6 +241,12 @@ export function idsFromPageUrl(href) {
   const list = path.match(/\/objectLists\/(\d+)(?:\/|$)/);
   if (list) {
     out.listId = list[1];
+    return out;
+  }
+
+  if (out.app === 'lists' || out.app === 'segments') {
+    const bare = path.match(/^\/(?:lists|segments)\/\d+\/(\d+)(?:\/|$)/);
+    if (bare) out.listId = bare[1];
     return out;
   }
 
