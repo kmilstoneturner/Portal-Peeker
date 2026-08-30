@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { trim, estimateTokens } from '../src/trim.js';
 import { summarize } from '../src/summary.js';
+import { assertSubtractive } from './subtractive.js';
 
 const fixturesDir = fileURLToPath(new URL('../__fixtures__/', import.meta.url));
 const fixture = (name) => readFileSync(fixturesDir + name, 'utf8');
@@ -20,45 +21,9 @@ const trimmed = (raw, options) => {
 const ruleIds = (raw, options) => trim(raw, options).rules.map((r) => r.id);
 
 // ------------------------------------------------------------------ property
-
-/**
- * Every leaf in the output must exist in the input with an identical value.
- *
- * Arrays are matched by content rather than index, because a rule may filter
- * one (inputValueFields), which shifts indices without changing any value.
- */
-function assertSubtractive(input, output, path = '$') {
-  if (output === null || typeof output !== 'object') {
-    expect(output, `value changed at ${path}`).toEqual(input);
-    return;
-  }
-  if (Array.isArray(output)) {
-    expect(Array.isArray(input), `array became non-array at ${path}`).toBe(true);
-    for (const [index, item] of output.entries()) {
-      const match = input.find((candidate) => containsSubtree(candidate, item));
-      expect(match, `output array item ${path}[${index}] is not present in the input`).toBeDefined();
-      assertSubtractive(match, item, `${path}[${index}]`);
-    }
-    return;
-  }
-  expect(input && typeof input === 'object' && !Array.isArray(input), `shape changed at ${path}`).toBe(true);
-  for (const [key, value] of Object.entries(output)) {
-    expect(Object.hasOwn(input, key), `output key ${path}.${key} does not exist in the input`).toBe(true);
-    assertSubtractive(input[key], value, `${path}.${key}`);
-  }
-}
-
-function containsSubtree(input, output) {
-  if (output === null || typeof output !== 'object') return input === output;
-  if (Array.isArray(output)) {
-    if (!Array.isArray(input)) return false;
-    return output.every((item) => input.some((candidate) => containsSubtree(candidate, item)));
-  }
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return false;
-  return Object.entries(output).every(
-    ([key, value]) => Object.hasOwn(input, key) && containsSubtree(input[key], value),
-  );
-}
+//
+// assertSubtractive lives in ./subtractive.js now, shared with the record
+// trim's suite: one definition of the property both trims are judged by.
 
 describe('trim is subtractive', () => {
   for (const [label, raw] of [['kitchen sink', CASES], ['load v3', LOAD_V3], ['save v4', SAVE_V4]]) {
@@ -241,6 +206,22 @@ describe('trim refuses rather than half-working', () => {
     expect(result.reason).toBe('flow is not at the response root');
   });
 
+  it('refuses a segment or a record with the cross-domain reason, not an accident', () => {
+    // Once summarize recognizes these domains they are recognized: true, so
+    // without the domain guard the refusal would fall through to "flow is not
+    // at the response root", which is findFlow returning null rather than a
+    // decision, and it names the wrong problem.
+    const record = JSON.stringify({
+      9101: { objectTypeId: '0-1', objectId: 9101, properties: { firstname: { value: 'F' } } },
+    });
+    const list = JSON.stringify({ portalId: 1, listId: 4242, processingType: 'DYNAMIC', name: 'L' });
+    for (const raw of [record, list]) {
+      const result = trim(raw);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe('trimming to workflow logic applies to workflow captures only');
+    }
+  });
+
   it('never throws, and reports input size even when refusing', () => {
     for (const input of ['', null, undefined, 'not json', '[]', '{}']) {
       expect(() => trim(input)).not.toThrow();
@@ -344,9 +325,13 @@ describe('real trial-portal captures', () => {
 // Client-portal captures are never committed. Drop them in __fixtures__/private
 // (gitignored) and these assertions run against real scale locally. Skipped
 // silently in CI, where the directory is empty.
+//
+// Filename convention: record captures are named record-*.json and belong to
+// record-trim.test.js's own private loop. This loop skips them, because the
+// flow trim rightly refuses a record and a refusal here would read as a break.
 const privateDir = fixturesDir + 'private/';
 const privateFiles = existsSync(privateDir)
-  ? readdirSync(privateDir).filter((f) => f.endsWith('.json'))
+  ? readdirSync(privateDir).filter((f) => f.endsWith('.json') && !f.startsWith('record-'))
   : [];
 
 describe.skipIf(privateFiles.length === 0)('private fixtures', () => {

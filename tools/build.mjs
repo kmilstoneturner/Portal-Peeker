@@ -93,6 +93,9 @@ const COPIES = [
   [`${EXTENSION}/popup.js`, 'popup.js'],
   [`${EXTENSION}/service-worker.js`, 'service-worker.js'],
   [`${CAPTURE}/protocol.js`, 'lib/protocol.js'],
+  // The popup reads the page URL the same way the bridge does (whose workflow
+  // or segment is this tab on?), and two URL parsers is how they would drift.
+  [`${CAPTURE}/endpoints.js`, 'lib/endpoints.js'],
   // Same trick as protocol.js above: one source, copied for the popup's module
   // loader and concatenated into the content-script bundle. That is what stops
   // the two sides of the settings contract from drifting apart.
@@ -101,10 +104,16 @@ const COPIES = [
   [`${OVERLAY}/overlay.css`, 'overlay/overlay.css'],
   [`${CORE}/summary.js`, 'lib/summary.js'],
   [`${CORE}/trim.js`, 'lib/trim.js'],
+  // trim.js and record-trim.js both import the kit, so it rides along the same
+  // way. All three are popup-side only: the capture bundles stay parser free.
+  [`${CORE}/trim-kit.js`, 'lib/trim-kit.js'],
+  [`${CORE}/record-trim.js`, 'lib/record-trim.js'],
   [`${CORE}/strip-html.js`, 'lib/strip-html.js'],
   [`${CORE}/json-span.js`, 'lib/json-span.js'],
   [`${CORE}/ui-numbers.js`, 'lib/ui-numbers.js'],
   [`${CORE}/ai-context.js`, 'lib/ai-context.js'],
+  [`${CORE}/related.js`, 'lib/related.js'],
+  [`${CORE}/root-splice.js`, 'lib/root-splice.js'],
   [MANIFEST, 'manifest.json'],
   // Ships inside the package, not merely in the repo. Chrome Web Store
   // Developer Agreement 5.2 grants every installer a perpetual worldwide

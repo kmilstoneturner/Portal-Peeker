@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Portal Peeker",
-  "version": "1.2.0",
-  "description": "Capture, inspect, and export the JSON behind HubSpot workflows. No telemetry, no analytics, no third-party requests.",
+  "version": "1.3.0",
+  "description": "Capture, inspect, and export the JSON behind HubSpot workflows, segments, and CRM records. No telemetry, no analytics, no third-party requests.",
   "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon-16.png",
@@ -33,7 +33,10 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.hubspot.com/workflows/*"
+        "*://*.hubspot.com/workflows/*",
+        "*://*.hubspot.com/contacts/*",
+        "*://*.hubspot.com/lists/*",
+        "*://*.hubspot.com/segments/*"
       ],
       "js": [
         "capture/interceptor.js"
@@ -44,7 +47,10 @@
     },
     {
       "matches": [
-        "*://*.hubspot.com/workflows/*"
+        "*://*.hubspot.com/workflows/*",
+        "*://*.hubspot.com/contacts/*",
+        "*://*.hubspot.com/lists/*",
+        "*://*.hubspot.com/segments/*"
       ],
       "js": [
         "capture/bridge.js"

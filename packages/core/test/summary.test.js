@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { summarize } from '../src/summary.js';
+import { summarize, countFilters, referencedListIds, systemReferencedListIds, listIdsInBatches } from '../src/summary.js';
 
 const fixture = (name) =>
   readFileSync(fileURLToPath(new URL(`../__fixtures__/${name}`, import.meta.url)), 'utf8');
@@ -13,6 +13,26 @@ const fixture = (name) =>
 const LOAD_V3 = fixture('synthetic/hybrid-get-v3.json');
 const SAVE_V4 = fixture('synthetic/save-response-v4.json');
 const REFRESH_V4 = fixture('synthetic/refresh-response-v4.json');
+// A scrubbed mirror of GET /api/inbounddb-lists/v1/lists/{listId}: the segment
+// definition the lists tool fetches when a list opens.
+const LIST_GET = fixture('synthetic/inbounddb-list-get.json');
+// Scrubbed mirrors of GET /api/inbounddb-objects/v1/crm-objects/{type}/batch:
+// a contact (known type, full name resolvable) and a portal-defined custom
+// object (unknown type, secondaryIdentifier null), captured August 2026.
+const RECORD_CONTACT = fixture('synthetic/crm-objects-batch-contact.json');
+const RECORD_CUSTOM = fixture('synthetic/crm-objects-batch-custom.json');
+
+/** A minimal record envelope, for the shapes no committed fixture carries. */
+const recordBody = (objectTypeId, objectId, properties, extra = {}) =>
+  JSON.stringify({
+    [objectId]: {
+      objectTypeId,
+      objectId: Number(objectId),
+      portalId: 12345678,
+      properties,
+      ...extra,
+    },
+  });
 
 describe('summarize: editor-load capture', () => {
   const result = summarize(LOAD_V3);
@@ -53,6 +73,369 @@ describe('summarize: save and refresh captures', () => {
     // These two were captured byte for byte identical: Refresh returns exactly
     // the state the save produced.
     expect(summarize(REFRESH_V4)).toEqual(summarize(SAVE_V4));
+  });
+});
+
+describe('summarize: segment (list) capture', () => {
+  const result = summarize(LIST_GET);
+
+  it('recognizes the inbounddb-lists envelope and says which domain it is', () => {
+    expect(result.recognized).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.domain).toBe('list');
+  });
+
+  it('reads the popup rows', () => {
+    expect(result.name).toBe('Contacts at partner resellers');
+    expect(result.listId).toBe('4242');
+    expect(result.portalId).toBe('12345678');
+    expect(result.version).toBe(3);
+    expect(result.processingType).toBe('DYNAMIC');
+    expect(result.objectTypeId).toBe('0-1');
+  });
+
+  it('leaves every workflow field null', () => {
+    expect(result.flowId).toBeNull();
+    expect(result.actionCount).toBeNull();
+    expect(result.isClassicWorkflow).toBeNull();
+  });
+
+  it('counts leaf filters across nested and ASSOCIATION branches', () => {
+    // One PROPERTY filter, one IN_LIST reference, and one PROPERTY filter
+    // nested inside an ASSOCIATION branch: three conditions.
+    expect(result.filterCount).toBe(3);
+  });
+
+  it('marks the flow fields null on a flow capture, and vice versa', () => {
+    const flow = summarize(LOAD_V3);
+    expect(flow.domain).toBe('flow');
+    expect(flow.listId).toBeNull();
+    expect(flow.processingType).toBeNull();
+    expect(flow.filterCount).toBeNull();
+  });
+
+  it('finds a list inside the public v3 envelope too', () => {
+    const wrapped = JSON.stringify({ list: JSON.parse(LIST_GET) });
+    const result = summarize(wrapped);
+    expect(result.domain).toBe('list');
+    expect(result.listId).toBe('4242');
+  });
+
+  it('does not mistake an IN_LIST filter or a bare id for the list', () => {
+    // listId appears inside filters; only an object that looks like a
+    // definition may summarize.
+    const raw = JSON.stringify({ results: [{ listId: 999 }], total: 1 });
+    expect(summarize(raw).recognized).toBe(false);
+  });
+
+  it('reports a MANUAL list without filters honestly', () => {
+    const raw = JSON.stringify({ portalId: 12345678, listId: 4242, processingType: 'MANUAL', name: 'Hand-picked' });
+    const result = summarize(raw);
+    expect(result.recognized).toBe(true);
+    expect(result.processingType).toBe('MANUAL');
+    expect(result.filterCount).toBeNull();
+  });
+
+  it('a workflow that references lists is still a flow capture', () => {
+    // associatedLists carry listId and filterBranch; the flow wins.
+    const raw = JSON.stringify({
+      flowId: 100,
+      name: 'Flow with goal list',
+      isClassicWorkflow: true,
+      actions: { 1: {} },
+      associatedLists: [{ listId: 4242, listType: 'CLASSIC_GOAL_LIST', filterBranch: {} }],
+    });
+    const result = summarize(raw);
+    expect(result.domain).toBe('flow');
+    expect(result.flowId).toBe('100');
+  });
+
+  it('a segment that references a workflow is still a list capture', () => {
+    // The mirror of the case above: a workflow-membership filter carries a
+    // bare flowId, which is a stray key inside a filter, not a flow. The
+    // corroborated list must beat findFlow's uncorroborated fallback, at any
+    // nesting depth.
+    const filter = { filterType: 'WORKFLOW', flowId: 555, operator: 'ENROLLED' };
+    for (const branch of [
+      { filterBranchOperator: 'OR', filters: [filter], filterBranches: [] },
+      {
+        filterBranchOperator: 'OR',
+        filters: [],
+        filterBranches: [{ filterBranchOperator: 'AND', filters: [filter], filterBranches: [] }],
+      },
+    ]) {
+      const raw = JSON.stringify({
+        portalId: 12345678,
+        listId: 4242,
+        listVersion: 1,
+        processingType: 'DYNAMIC',
+        name: 'Enrolled in nurture flow',
+        filterBranch: branch,
+      });
+      const result = summarize(raw);
+      expect(result.domain).toBe('list');
+      expect(result.recognized).toBe(true);
+      expect(result.listId).toBe('4242');
+      expect(result.name).toBe('Enrolled in nurture flow');
+      expect(result.filterCount).toBe(1);
+    }
+  });
+});
+
+describe('summarize: record capture', () => {
+  const result = summarize(RECORD_CONTACT);
+
+  it('recognizes the crm-objects batch envelope and says which domain it is', () => {
+    expect(result.recognized).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.domain).toBe('record');
+  });
+
+  it('reads the popup rows, objectId as a string like every other id', () => {
+    expect(result.objectTypeId).toBe('0-1');
+    expect(result.objectId).toBe('9101');
+    expect(result.portalId).toBe('12345678');
+    expect(result.propertyCount).toBe(77);
+    // Records carry no version; the popup shows propertyCount in that slot.
+    expect(result.version).toBeNull();
+  });
+
+  it('resolves the display name from the per-type table', () => {
+    // Consumed by the AI context block and the download filename only. The
+    // popup rows never render it: identifiers are enough on screen.
+    expect(result.name).toBe('Ada Lovelace (Fixture)');
+  });
+
+  it('leaves every workflow and segment field null, and vice versa', () => {
+    expect(result.flowId).toBeNull();
+    expect(result.listId).toBeNull();
+    expect(result.actionCount).toBeNull();
+    expect(result.processingType).toBeNull();
+    expect(result.filterCount).toBeNull();
+
+    const flow = summarize(LOAD_V3);
+    expect(flow.objectId).toBeNull();
+    expect(flow.propertyCount).toBeNull();
+    const list = summarize(LIST_GET);
+    expect(list.objectId).toBeNull();
+    expect(list.propertyCount).toBeNull();
+  });
+
+  it('summarizes a custom object with no name rather than guessing one', () => {
+    // Unknown type, so the table has no row, and this capture's
+    // secondaryIdentifier is null (observed on the live custom object and on
+    // deals). Null then: a missing name reads better than a wrong one.
+    const custom = summarize(RECORD_CUSTOM);
+    expect(custom.recognized).toBe(true);
+    expect(custom.domain).toBe('record');
+    expect(custom.objectTypeId).toBe('2-7701');
+    expect(custom.objectId).toBe('9303');
+    expect(custom.name).toBeNull();
+    expect(custom.propertyCount).toBe(16);
+  });
+
+  it('names every tabled type from its own properties', () => {
+    for (const [objectTypeId, property, value] of [
+      ['0-2', 'name', 'Fixture Industries'],
+      ['0-3', 'dealname', 'Fixture renewal'],
+      ['0-5', 'subject', 'Fixture ticket'],
+      ['0-27', 'hs_task_subject', 'Fixture task'],
+      ['0-47', 'hs_meeting_title', 'Fixture meeting'],
+      ['0-48', 'hs_call_title', 'Fixture call'],
+      ['0-49', 'hs_email_subject', 'Fixture email'],
+    ]) {
+      const raw = recordBody(objectTypeId, '9505', { [property]: { value } });
+      expect(summarize(raw).name, objectTypeId).toBe(value);
+    }
+  });
+
+  it('resolves the name from a values-trimmed export too', () => {
+    // The property values trim collapses each entry to the bare value under
+    // its name; a previously exported file must still name itself.
+    const flat = recordBody('0-1', '9101', { firstname: 'Ada', lastname: 'Lovelace' });
+    expect(summarize(flat).name).toBe('Ada Lovelace');
+    expect(summarize(recordBody('0-1', '9101', { firstname: '' })).name).toBeNull();
+  });
+
+  it('joins what is present and degrades through secondaryIdentifier to null', () => {
+    // A contact with no last name yields the real first name, not a blank.
+    expect(
+      summarize(recordBody('0-1', '9101', { firstname: { value: 'Ada' } })).name,
+    ).toBe('Ada');
+    // Table properties absent entirely: fall back to the record's own
+    // secondaryIdentifier (email on contacts, domain on companies).
+    expect(
+      summarize(
+        recordBody('0-1', '9101', {}, { secondaryIdentifier: 'ada@fixture.example' }),
+      ).name,
+    ).toBe('ada@fixture.example');
+    // Nothing resolvable at all.
+    expect(summarize(recordBody('0-1', '9101', {})).name).toBeNull();
+  });
+
+  it('refuses a multi-record body whole rather than picking one', () => {
+    const two = JSON.stringify({
+      ...JSON.parse(recordBody('0-1', '9101', {})),
+      ...JSON.parse(recordBody('0-1', '9303', {})),
+    });
+    const result = summarize(two);
+    expect(result.recognized).toBe(false);
+    expect(result.domain).toBe('record');
+    expect(result.reason).toBe('response holds more than one record');
+  });
+
+  it('still reads as a record with _aiContext and _related spliced in', () => {
+    // A previously exported file must summarize like the capture it came from.
+    const parsed = JSON.parse(RECORD_CONTACT);
+    const wrapped = JSON.stringify({ _aiContext: { whatThisIs: 'x' }, _related: {}, ...parsed });
+    const again = summarize(wrapped);
+    expect(again.domain).toBe('record');
+    expect(again.objectId).toBe('9101');
+  });
+
+  it('refuses near-miss shapes rather than reading them as records', () => {
+    for (const [label, raw] of [
+      ['non-numeric key', '{"deals":{"objectTypeId":"0-3","objectId":1,"properties":{}}}'],
+      ['key disagreeing with objectId', '{"9101":{"objectTypeId":"0-1","objectId":9303,"properties":{}}}'],
+      ['unhyphenated objectTypeId', '{"9101":{"objectTypeId":"1","objectId":9101,"properties":{}}}'],
+      ['missing properties', '{"9101":{"objectTypeId":"0-1","objectId":9101}}'],
+      ['array root', '[{"objectTypeId":"0-1","objectId":9101,"properties":{}}]'],
+      ['empty map', '{}'],
+    ]) {
+      const result = summarize(raw);
+      expect(result.recognized, label).toBe(false);
+      expect(result.domain, label).not.toBe('record');
+    }
+  });
+
+  it('names all three domains in the not-found reason', () => {
+    expect(summarize('{"status":"error","message":"nope"}').reason).toBe(
+      'no flow, list, or record object found in response',
+    );
+  });
+});
+
+describe('referencedListIds', () => {
+  it('collects IN_LIST, association, and suppression references, excluding the list itself', () => {
+    const list = {
+      listId: 100,
+      processingType: 'DYNAMIC',
+      metadata: {
+        membershipSettings: {
+          strategicSegmentSettings: { marketSegmentId: null, marketSegmentListId: 15 },
+          suppressionSettings: {
+            suppressionLists: [9, { listId: 11 }],
+            secondarySuppressionListId: 13,
+          },
+        },
+      },
+      filterBranch: {
+        filterBranchOperator: 'OR',
+        filters: [{ filterType: 'IN_LIST', listId: 5 }],
+        filterBranches: [
+          {
+            filterBranchType: 'ASSOCIATION',
+            associationListId: 7,
+            filters: [],
+            filterBranches: [],
+          },
+          {
+            // A filter naming the list's own id is self-reference, not a
+            // dependency.
+            filters: [{ filterType: 'IN_LIST', listId: 100 }],
+            filterBranches: [],
+          },
+        ],
+      },
+    };
+    expect(referencedListIds(list)).toEqual(['5', '7', '9', '11', '13', '15']);
+  });
+
+  it('reports the fixture pair the batch fixture covers', () => {
+    expect(summarize(LIST_GET).referencedListIds).toEqual(['4243', '4244']);
+  });
+
+  it('answers empty rather than throwing on shapes it has not seen', () => {
+    expect(referencedListIds(null)).toEqual([]);
+    expect(referencedListIds({})).toEqual([]);
+    expect(referencedListIds({ filterBranch: 42, metadata: 'odd' })).toEqual([]);
+    expect(systemReferencedListIds(null)).toEqual([]);
+  });
+
+  it('predicts the secondary-suppression ids as system, from field provenance', () => {
+    // The live shape that taught this: suppressionLists carries a list the
+    // user picked (fetches fine); the *SecondaryListId fields carry
+    // HubSpot-materialized internals (answer 404 to a definition fetch).
+    const list = {
+      listId: 19,
+      processingType: 'DYNAMIC',
+      metadata: {
+        membershipSettings: {
+          strategicSegmentSettings: { marketSegmentId: null, marketSegmentListId: null },
+          suppressionSettings: {
+            suppressionLists: [20],
+            secondarySuppressionListId: 21,
+            individualSuppressionSecondaryListId: null,
+            emailDomainSuppressionSecondaryListId: 22,
+          },
+        },
+      },
+      filterBranch: {
+        filterBranchOperator: 'OR',
+        filters: [],
+        filterBranches: [
+          { filters: [{ filterType: 'IN_LIST', listId: 25 }], filterBranches: [] },
+        ],
+      },
+    };
+    expect(referencedListIds(list)).toEqual(['20', '21', '22', '25']);
+    expect(systemReferencedListIds(list)).toEqual(['21', '22']);
+  });
+
+  it('treats an id as a user reference the moment anything user-facing names it', () => {
+    // If a secondary field and a filter both point at the same list, the
+    // filter proves it is reachable, so it is not predicted unfetchable.
+    const list = {
+      listId: 1,
+      processingType: 'DYNAMIC',
+      metadata: {
+        membershipSettings: {
+          suppressionSettings: { suppressionLists: [], secondarySuppressionListId: 30 },
+        },
+      },
+      filterBranch: { filters: [{ filterType: 'IN_LIST', listId: 30 }], filterBranches: [] },
+    };
+    expect(referencedListIds(list)).toEqual(['30']);
+    expect(systemReferencedListIds(list)).toEqual([]);
+  });
+
+  it('reports no system references for the fixture, whose secondary fields are null', () => {
+    const summary = summarize(LIST_GET);
+    expect(summary.systemReferencedListIds).toEqual([]);
+    expect(summarize(LOAD_V3).systemReferencedListIds).toBeNull();
+  });
+});
+
+describe('listIdsInBatches', () => {
+  it('collects ids from batch and single-definition bodies, skipping what will not parse', () => {
+    const batch = JSON.stringify([{ listId: 4243 }, { listId: 4244 }]);
+    // A single-definition body is what Fetch missing stores, and it counts.
+    const fetched = '{"listId":21,"processingType":"DYNAMIC"}';
+    expect(listIdsInBatches([batch, 'not json', fetched]).sort()).toEqual(['21', '4243', '4244']);
+    expect(listIdsInBatches(null)).toEqual([]);
+  });
+});
+
+describe('countFilters', () => {
+  it('returns null for a missing branch and 0 for an empty one', () => {
+    expect(countFilters(null)).toBeNull();
+    expect(countFilters(undefined)).toBeNull();
+    expect(countFilters({ filterBranchOperator: 'OR', filters: [], filterBranches: [] })).toBe(0);
+  });
+
+  it('never throws on shapes it has not seen', () => {
+    expect(countFilters({ filters: 'not an array', filterBranches: { odd: true } })).toBe(0);
+    expect(countFilters(42)).toBeNull();
   });
 });
 

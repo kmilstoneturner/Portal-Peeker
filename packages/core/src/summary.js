@@ -8,30 +8,48 @@
 // why nothing in this file throws.
 
 /**
- * @typedef {object} FlowSummary
+ * @typedef {object} CaptureSummary
  * @property {boolean} recognized  false means show the degraded popup state
  * @property {string|null} reason  why it was not recognized
+ * @property {'flow'|'list'|'record'|null} domain  what kind of payload this is
  * @property {string|null} name
  * @property {string|null} flowId
+ * @property {string|null} listId
  * @property {string|null} portalId
- * @property {number|string|null} version
+ * @property {number|string|null} version  flow version, or listVersion
  * @property {boolean|null} isClassicWorkflow
  * @property {string|null} legacyWorkflowId
  * @property {number|null} actionCount
  * @property {boolean|null} enabled
+ * @property {string|null} processingType  DYNAMIC | SNAPSHOT | MANUAL, lists only
+ * @property {string|null} objectTypeId    lists and records
+ * @property {number|null} filterCount     lists only
+ * @property {string[]|null} referencedListIds  lists only: ids this segment depends on
+ * @property {string[]|null} systemReferencedListIds  lists only: the subset expected to be HubSpot-managed internals
+ * @property {string|null} objectId        records only
+ * @property {number|null} propertyCount   records only
  */
 
 const EMPTY = {
   recognized: false,
   reason: null,
+  domain: null,
   name: null,
   flowId: null,
+  listId: null,
   portalId: null,
   version: null,
   isClassicWorkflow: null,
   legacyWorkflowId: null,
   actionCount: null,
   enabled: null,
+  processingType: null,
+  objectTypeId: null,
+  filterCount: null,
+  referencedListIds: null,
+  systemReferencedListIds: null,
+  objectId: null,
+  propertyCount: null,
 };
 
 /**
@@ -69,16 +87,22 @@ export function findFlow(root) {
     if (node.flowId != null && typeof node.flowId !== 'object') {
       const looksLikeFlow =
         'actions' in node || 'name' in node || 'isClassicWorkflow' in node;
-      if (looksLikeFlow) return { flow: node, direct: node === root, path };
-      if (!fallback) fallback = { flow: node, direct: false, path };
+      // corroborated says whether the flowId had flow-shaped company. The
+      // fallback exists for envelopes nobody has pinned down, but a bare
+      // flowId can also be a stray key inside something that is not a flow at
+      // all (a segment's workflow-membership filter carries one), so the
+      // caller gets to weigh a fallback against other evidence.
+      if (looksLikeFlow) return { flow: node, direct: node === root, path, corroborated: true };
+      if (!fallback) fallback = { flow: node, direct: false, path, corroborated: false };
     }
 
     for (const [key, value] of Object.entries(node)) {
-      // Never descend into our own context block (see ai-context.js). It
-      // records the flow's ID and name, so on an envelope payload, whose root
-      // carries no flowId, the block would otherwise be found before the flow
-      // it describes.
-      if (key === '_aiContext') continue;
+      // Never descend into our own inserted keys (see ai-context.js and
+      // related.js). The context block records the flow's ID and name, so on
+      // an envelope payload, whose root carries no flowId, the block would
+      // otherwise be found before the flow it describes; the related block
+      // carries whole other list definitions.
+      if (key === '_aiContext' || key === '_related') continue;
       if (value && typeof value === 'object') {
         queue.push({ node: value, depth: depth + 1, path: [...path, key] });
       }
@@ -86,6 +110,319 @@ export function findFlow(root) {
   }
 
   return fallback;
+}
+
+/**
+ * Find the segment (list) object inside a parsed response body.
+ *
+ * GET /api/inbounddb-lists/v1/lists/{listId} returns the list at the root
+ * (observed live, August 2026); the public v3 API wraps the same object in a
+ * {list: ...} envelope. So: the root, then the root's direct object children,
+ * and nothing deeper. A deep scan here would be a hazard rather than
+ * tolerance, because listId also appears inside IN_LIST filters and inside a
+ * workflow's associatedLists, and fishing one of those out would summarize a
+ * reference as if it were the payload.
+ *
+ * Corroboration mirrors findFlow: an object is only a list if, next to its
+ * listId, it carries something only a list definition has.
+ */
+export function findList(root) {
+  const candidates = [{ node: root, path: [] }];
+  if (root && typeof root === 'object' && !Array.isArray(root)) {
+    for (const [key, value] of Object.entries(root)) {
+      if (key === '_aiContext' || key === '_related') continue;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        candidates.push({ node: value, path: [key] });
+      }
+    }
+  }
+
+  for (const { node, path } of candidates) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) continue;
+    if (node.listId == null || typeof node.listId === 'object') continue;
+    const looksLikeList =
+      'processingType' in node || 'filterBranch' in node || 'listVersion' in node || 'objectTypeId' in node;
+    if (looksLikeList) return { list: node, direct: node === root, path };
+  }
+
+  return null;
+}
+
+/**
+ * Is this parsed body a CRM record envelope?
+ *
+ * GET /api/inbounddb-objects/v1/crm-objects/{objectTypeId}/batch answers with
+ * a map keyed by objectId string, each value re-declaring its own
+ * objectTypeId and objectId and carrying a properties map. Unlike findFlow
+ * and findList this is a total predicate on the root, not a search: it either
+ * holds for every root value or the body is not a record envelope. That
+ * totality is why summarize checks it FIRST: a record's reverseReferences or
+ * objectStates could in principle carry a stray flowId at depth, and letting
+ * findFlow's uncorroborated fallback see the body would put that question on
+ * the table at all.
+ *
+ * _aiContext and _related are skipped exactly as the other two finders skip
+ * them: a previously exported record file must still read as a record.
+ */
+export function isRecordEnvelope(root) {
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return false;
+  const entries = Object.entries(root).filter(
+    ([key]) => key !== '_aiContext' && key !== '_related',
+  );
+  if (entries.length === 0) return false;
+  return entries.every(([key, value]) => {
+    if (!/^\d+$/.test(key)) return false;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    if (typeof value.objectTypeId !== 'string' || !/^\d+-\d+$/.test(value.objectTypeId)) return false;
+    if (value.objectId == null || typeof value.objectId === 'object') return false;
+    // The map key is the objectId; a value disagreeing with its own key is
+    // not an envelope shape anyone has observed, and refusing it is cheaper
+    // than deciding which of the two ids to believe.
+    if (String(value.objectId) !== key) return false;
+    if (!value.properties || typeof value.properties !== 'object' || Array.isArray(value.properties)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Which properties name a record on screen, by object type.
+ *
+ * One table, same idiom as SETTINGS and MODIFICATIONS: adding a type is one
+ * line here and nothing anywhere else. The four standard CRM objects plus the
+ * four engagement types, which have record pages of their own (confirmed live
+ * on a task). HubSpot's own schema names a single primaryDisplayLabelPropertyName
+ * per type (firstname, name, dealname, subject: observed in the association
+ * cards RPC), which validates the concept; the contact row keeps lastname too
+ * because half a person's name is a worse label than the whole one.
+ *
+ * Custom objects are deliberately absent: their display property is chosen by
+ * whoever defined the object and cannot be known without metadata this
+ * capture does not carry. They fall through to secondaryIdentifier, then to
+ * null. The resolved name is used by the AI context block and the download
+ * filename only, never rendered in the popup rows.
+ */
+export const RECORD_NAME_PROPERTIES = {
+  '0-1': ['firstname', 'lastname'],
+  '0-2': ['name'],
+  '0-3': ['dealname'],
+  '0-5': ['subject'],
+  '0-27': ['hs_task_subject'],
+  '0-47': ['hs_meeting_title'],
+  '0-48': ['hs_call_title'],
+  '0-49': ['hs_email_subject'],
+};
+
+function propertyValue(record, name) {
+  const entry = record.properties ? record.properties[name] : null;
+  // A values-trimmed export carries the value directly under the name, so a
+  // previously exported file still resolves its own display name.
+  if (typeof entry === 'string') return entry !== '' ? entry : null;
+  if (!entry || typeof entry !== 'object') return null;
+  return typeof entry.value === 'string' && entry.value !== '' ? entry.value : null;
+}
+
+function recordName(record) {
+  const wanted = RECORD_NAME_PROPERTIES[record.objectTypeId] || [];
+  const parts = wanted.map((name) => propertyValue(record, name)).filter(Boolean);
+  if (parts.length) return parts.join(' ');
+  // Populated on contacts (email) and companies (domain); null on deals and
+  // custom objects, both observed. Null then, honestly: a missing name reads
+  // better than a guessed one.
+  return typeof record.secondaryIdentifier === 'string' && record.secondaryIdentifier !== ''
+    ? record.secondaryIdentifier
+    : null;
+}
+
+/**
+ * The record half of summarize. Only ever called on a body isRecordEnvelope
+ * accepted, so every value is a record; the remaining question is how many.
+ */
+function summarizeRecord(root) {
+  const entries = Object.entries(root).filter(
+    ([key]) => key !== '_aiContext' && key !== '_related',
+  );
+
+  if (entries.length !== 1) {
+    // classifyUrl refuses multi-id batch URLs, so a multi-record body should
+    // never reach a snapshot; a pasted or hand-built file still can. Picking
+    // one record to describe would be a guess presented as a fact.
+    return {
+      ...EMPTY,
+      domain: 'record',
+      reason: 'response holds more than one record',
+    };
+  }
+
+  const record = entries[0][1];
+  return {
+    ...EMPTY,
+    recognized: true,
+    reason: null,
+    domain: 'record',
+    name: recordName(record),
+    objectTypeId: record.objectTypeId,
+    objectId: String(record.objectId),
+    portalId: record.portalId != null ? String(record.portalId) : null,
+    propertyCount: Object.keys(record.properties).length,
+  };
+}
+
+/**
+ * Count the leaf filters in a filterBranch tree.
+ *
+ * Leaves live in each branch's `filters` array; branches nest through
+ * `filterBranches`, including ASSOCIATION branches, which carry their own
+ * operator and then nest the filters that apply to the associated object.
+ * This is the number a person would give if asked "how many conditions does
+ * this segment check?", and it is computed rather than trusted from any
+ * count field, because no count field has been observed.
+ */
+export function countFilters(branch) {
+  if (!branch || typeof branch !== 'object') return null;
+  let count = 0;
+  const queue = [branch];
+  let guard = 0;
+  while (queue.length && guard++ < 2000) {
+    const node = queue.shift();
+    if (!node || typeof node !== 'object') continue;
+    if (Array.isArray(node.filters)) count += node.filters.length;
+    if (Array.isArray(node.filterBranches)) queue.push(...node.filterBranches);
+  }
+  return count;
+}
+
+const sortIds = (ids) =>
+  [...ids].sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+
+/**
+ * Every list this segment depends on, split by what kind of reference names
+ * it.
+ *
+ * User references are lists a person chose: IN_LIST filters (filter.listId),
+ * ASSOCIATION branches (branch.associationListId), the suppressionLists
+ * array, and the strategic market segment list. System references are the
+ * ids in the *SecondaryListId fields, whose own names mark them as derived:
+ * observed live, they are HubSpot-materialized internals that answer 404 to a
+ * definition fetch, and their effect is already spelled out by the settings
+ * that name them. An id that appears in both kinds counts as a user
+ * reference, since something user-facing demonstrably points at it. The
+ * segment's own id is excluded throughout.
+ *
+ * The split is a prediction from field provenance, not a verified fact per
+ * id, which is why the bridge's remembered 404s stay the authority: this
+ * decides what to offer, those record what actually answered.
+ */
+function collectListReferences(list) {
+  const user = new Set();
+  const system = new Set();
+  const addTo = (set) => (value) => {
+    if (value == null || typeof value === 'object' || typeof value === 'boolean') return;
+    set.add(String(value));
+  };
+  const addUser = addTo(user);
+  const addSystem = addTo(system);
+
+  if (list && typeof list === 'object') {
+    const queue = [list.filterBranch];
+    let guard = 0;
+    while (queue.length && guard++ < 2000) {
+      const node = queue.shift();
+      if (!node || typeof node !== 'object') continue;
+      if (Array.isArray(node.filters)) {
+        for (const filter of node.filters) {
+          if (filter && typeof filter === 'object') addUser(filter.listId);
+        }
+      }
+      addUser(node.associationListId);
+      if (Array.isArray(node.filterBranches)) queue.push(...node.filterBranches);
+    }
+
+    const membership =
+      list.metadata && list.metadata.membershipSettings ? list.metadata.membershipSettings : null;
+
+    const strategic = membership ? membership.strategicSegmentSettings : null;
+    if (strategic && typeof strategic === 'object') addUser(strategic.marketSegmentListId);
+
+    const suppression = membership ? membership.suppressionSettings : null;
+    if (suppression && typeof suppression === 'object') {
+      const entries = Array.isArray(suppression.suppressionLists) ? suppression.suppressionLists : [];
+      for (const entry of entries) {
+        if (entry && typeof entry === 'object') addUser(entry.listId);
+        else addUser(entry);
+      }
+      addSystem(suppression.secondarySuppressionListId);
+      addSystem(suppression.individualSuppressionSecondaryListId);
+      addSystem(suppression.emailDomainSuppressionSecondaryListId);
+    }
+
+    const self = list.listId != null ? String(list.listId) : null;
+    for (const id of [self].filter(Boolean)) {
+      user.delete(id);
+      system.delete(id);
+    }
+    for (const id of user) system.delete(id);
+  }
+
+  return { user, system };
+}
+
+/**
+ * The ids of every list this segment depends on, from its own definition:
+ * the denominator for "how much of what this segment references did we also
+ * capture".
+ *
+ * @param {object} list a list definition, as found by findList
+ * @returns {string[]} distinct ids, sorted numerically where possible
+ */
+export function referencedListIds(list) {
+  const { user, system } = collectListReferences(list);
+  return sortIds([...user, ...system]);
+}
+
+/**
+ * The subset of referencedListIds expected to be HubSpot-managed internals
+ * with no fetchable definition, predicted from which field names them.
+ *
+ * @param {object} list a list definition, as found by findList
+ * @returns {string[]}
+ */
+export function systemReferencedListIds(list) {
+  return sortIds(collectListReferences(list).system);
+}
+
+/**
+ * The list ids present in a set of raw captured bodies: the numerator for the
+ * coverage the popup reports. A body is either one getBatch response (an
+ * array of definitions) or one single-definition response fetched on request;
+ * both count. Bodies that will not parse contribute nothing rather than
+ * failing the count.
+ *
+ * @param {string[]} bodies raw responses
+ * @returns {string[]}
+ */
+export function listIdsInBatches(bodies) {
+  const out = new Set();
+  const take = (item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item) && item.listId != null && typeof item.listId !== 'object') {
+      out.add(String(item.listId));
+    }
+  };
+  for (const body of Array.isArray(bodies) ? bodies : []) {
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      continue;
+    }
+    if (Array.isArray(parsed)) {
+      for (const item of parsed.slice(0, 500)) take(item);
+    } else {
+      take(parsed);
+    }
+  }
+  return [...out];
 }
 
 function countActions(actions) {
@@ -108,7 +445,7 @@ function pickPortalId(flow, root) {
 
 /**
  * @param {string} rawText raw response body, verbatim
- * @returns {FlowSummary}
+ * @returns {CaptureSummary}
  */
 export function summarize(rawText) {
   if (typeof rawText !== 'string' || rawText.trim() === '') {
@@ -122,16 +459,34 @@ export function summarize(rawText) {
     return { ...EMPTY, reason: 'body is not JSON' };
   }
 
+  // Records first, because the record check is a total predicate on the root
+  // rather than a search: a body it accepts cannot also be a flow (a flow
+  // root carries scalar fields) or a list (a list root carries a scalar
+  // listId), while the reverse is not as clean: a record's reverseReferences
+  // could carry a stray flowId at depth for findFlow's fallback to trip on.
+  if (isRecordEnvelope(parsed)) return summarizeRecord(parsed);
+
+  // Flows next, but only on real evidence. A corroborated flow wins
+  // outright: workflows legitimately carry listId and filterBranch deep
+  // inside associatedLists, so a payload with a real flow in it is a flow
+  // capture whatever else it mentions. findFlow's uncorroborated fallback
+  // does not get that priority, because a bare flowId can live inside a
+  // segment's own filters (a workflow-membership filter carries one), and a
+  // corroborated list is the better reading of such a payload.
   const located = findFlow(parsed);
-  if (!located) {
-    return { ...EMPTY, reason: 'no flow object found in response' };
+  if (!located || !located.corroborated) {
+    const foundList = findList(parsed);
+    if (foundList) return summarizeList(foundList.list, parsed);
+    if (!located) return { ...EMPTY, reason: 'no flow, list, or record object found in response' };
   }
 
   const flow = located.flow;
 
   const summary = {
+    ...EMPTY,
     recognized: true,
     reason: null,
+    domain: 'flow',
     name: typeof flow.name === 'string' ? flow.name : null,
     flowId: flow.flowId != null ? String(flow.flowId) : null,
     portalId: pickPortalId(flow, parsed),
@@ -161,6 +516,43 @@ export function summarize(rawText) {
   } else if (summary.actionCount == null) {
     summary.recognized = false;
     summary.reason = 'no actions map in response';
+  }
+
+  return summary;
+}
+
+/**
+ * The list half of summarize. Observed envelope, August 2026:
+ * portalId, listId, listVersion, objectTypeId, processingType, name,
+ * metadata {...}, filterBranch {...}, description, uuid, at the root.
+ */
+function summarizeList(list, root) {
+  const summary = {
+    ...EMPTY,
+    recognized: true,
+    reason: null,
+    domain: 'list',
+    name: typeof list.name === 'string' ? list.name : null,
+    listId: list.listId != null ? String(list.listId) : null,
+    portalId:
+      list.portalId != null
+        ? String(list.portalId)
+        : root && root.portalId != null
+          ? String(root.portalId)
+          : null,
+    version: list.listVersion != null ? list.listVersion : null,
+    processingType: typeof list.processingType === 'string' ? list.processingType : null,
+    objectTypeId: typeof list.objectTypeId === 'string' ? list.objectTypeId : null,
+    // null when the payload carries no filterBranch at all (a MANUAL list
+    // legitimately has none); a number, possibly 0, when it does.
+    filterCount: countFilters(list.filterBranch),
+    referencedListIds: referencedListIds(list),
+    systemReferencedListIds: systemReferencedListIds(list),
+  };
+
+  if (summary.listId == null) {
+    summary.recognized = false;
+    summary.reason = 'no listId in response';
   }
 
   return summary;

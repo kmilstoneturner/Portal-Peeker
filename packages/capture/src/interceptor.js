@@ -26,10 +26,17 @@ function emit(hit, status, bodyText) {
     window.postMessage(
       {
         channel: WINDOW_CHANNEL,
-        type: PAGE_MSG.CAPTURE,
+        // Sidecars ride a separate message type so an older bridge ignores
+        // them rather than storing one as the subject.
+        type: hit.role === 'sidecar' ? PAGE_MSG.SIDECAR : PAGE_MSG.CAPTURE,
         kind: hit.kind,
+        domain: hit.domain,
+        sidecarKind: hit.sidecarKind,
         url: hit.url,
         flowIdFromUrl: hit.flowId,
+        listIdFromUrl: hit.listId,
+        objectTypeIdFromUrl: hit.objectTypeId,
+        objectIdFromUrl: hit.objectId,
         status,
         capturedAt: Date.now(),
         body: bodyText,
@@ -53,17 +60,30 @@ function urlOf(input) {
   return null;
 }
 
+// The list endpoint serves reads and writes on one path, so the method is part
+// of classification. fetch carries it in two places: init wins over a Request
+// object's own method, which is fetch's own precedence.
+function methodOf(input, init) {
+  try {
+    if (init && typeof init.method === 'string') return init.method;
+    if (input && typeof input.method === 'string') return input.method; // Request
+  } catch {
+    /* fall through */
+  }
+  return 'GET';
+}
+
 // ---------------------------------------------------------------- fetch
 
 const nativeFetch = window.fetch;
 
 if (typeof nativeFetch === 'function') {
-  window.fetch = function patchedFetch(input) {
+  window.fetch = function patchedFetch(input, init) {
     const pending = nativeFetch.apply(this, arguments);
 
     let hit = null;
     try {
-      hit = classifyUrl(urlOf(input), window.location.href);
+      hit = classifyUrl(urlOf(input), window.location.href, undefined, methodOf(input, init));
     } catch {
       hit = null;
     }
@@ -100,6 +120,7 @@ const nativeSend = XMLHttpRequest.prototype.send;
 XMLHttpRequest.prototype.open = function patchedOpen(method, url) {
   try {
     this.__portalPeekerUrl = typeof url === 'string' ? url : urlOf(url);
+    this.__portalPeekerMethod = typeof method === 'string' ? method : 'GET';
   } catch {
     /* ignore */
   }
@@ -108,7 +129,12 @@ XMLHttpRequest.prototype.open = function patchedOpen(method, url) {
 
 XMLHttpRequest.prototype.send = function patchedSend() {
   try {
-    const hit = classifyUrl(this.__portalPeekerUrl, window.location.href);
+    const hit = classifyUrl(
+      this.__portalPeekerUrl,
+      window.location.href,
+      undefined,
+      this.__portalPeekerMethod,
+    );
     if (hit) {
       this.addEventListener('load', function onLoad() {
         try {
