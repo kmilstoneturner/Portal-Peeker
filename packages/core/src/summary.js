@@ -25,6 +25,7 @@
  * @property {string|null} objectTypeId    lists and records
  * @property {number|null} filterCount     lists only
  * @property {string[]|null} referencedListIds  lists only: ids this segment depends on
+ * @property {string[]|null} systemReferencedListIds  lists only: the subset expected to be HubSpot-managed internals
  * @property {string|null} objectId        records only
  * @property {number|null} propertyCount   records only
  */
@@ -46,6 +47,7 @@ const EMPTY = {
   objectTypeId: null,
   filterCount: null,
   referencedListIds: null,
+  systemReferencedListIds: null,
   objectId: null,
   propertyCount: null,
 };
@@ -291,23 +293,36 @@ export function countFilters(branch) {
   return count;
 }
 
+const sortIds = (ids) =>
+  [...ids].sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+
 /**
- * The ids of every list this segment depends on, from its own definition.
+ * Every list this segment depends on, split by what kind of reference names
+ * it.
  *
- * Three places name one: IN_LIST filters (filter.listId), ASSOCIATION
- * branches (branch.associationListId), and the suppression settings under
- * metadata. The segment's own id is excluded. This is the denominator for
- * "how much of what this segment references did we also capture".
+ * User references are lists a person chose: IN_LIST filters (filter.listId),
+ * ASSOCIATION branches (branch.associationListId), the suppressionLists
+ * array, and the strategic market segment list. System references are the
+ * ids in the *SecondaryListId fields, whose own names mark them as derived:
+ * observed live, they are HubSpot-materialized internals that answer 404 to a
+ * definition fetch, and their effect is already spelled out by the settings
+ * that name them. An id that appears in both kinds counts as a user
+ * reference, since something user-facing demonstrably points at it. The
+ * segment's own id is excluded throughout.
  *
- * @param {object} list a list definition, as found by findList
- * @returns {string[]} distinct ids, sorted numerically where possible
+ * The split is a prediction from field provenance, not a verified fact per
+ * id, which is why the bridge's remembered 404s stay the authority: this
+ * decides what to offer, those record what actually answered.
  */
-export function referencedListIds(list) {
-  const out = new Set();
-  const add = (value) => {
+function collectListReferences(list) {
+  const user = new Set();
+  const system = new Set();
+  const addTo = (set) => (value) => {
     if (value == null || typeof value === 'object' || typeof value === 'boolean') return;
-    out.add(String(value));
+    set.add(String(value));
   };
+  const addUser = addTo(user);
+  const addSystem = addTo(system);
 
   if (list && typeof list === 'object') {
     const queue = [list.filterBranch];
@@ -317,10 +332,10 @@ export function referencedListIds(list) {
       if (!node || typeof node !== 'object') continue;
       if (Array.isArray(node.filters)) {
         for (const filter of node.filters) {
-          if (filter && typeof filter === 'object') add(filter.listId);
+          if (filter && typeof filter === 'object') addUser(filter.listId);
         }
       }
-      add(node.associationListId);
+      addUser(node.associationListId);
       if (Array.isArray(node.filterBranches)) queue.push(...node.filterBranches);
     }
 
@@ -328,24 +343,53 @@ export function referencedListIds(list) {
       list.metadata && list.metadata.membershipSettings ? list.metadata.membershipSettings : null;
 
     const strategic = membership ? membership.strategicSegmentSettings : null;
-    if (strategic && typeof strategic === 'object') add(strategic.marketSegmentListId);
+    if (strategic && typeof strategic === 'object') addUser(strategic.marketSegmentListId);
 
     const suppression = membership ? membership.suppressionSettings : null;
     if (suppression && typeof suppression === 'object') {
       const entries = Array.isArray(suppression.suppressionLists) ? suppression.suppressionLists : [];
       for (const entry of entries) {
-        if (entry && typeof entry === 'object') add(entry.listId);
-        else add(entry);
+        if (entry && typeof entry === 'object') addUser(entry.listId);
+        else addUser(entry);
       }
-      add(suppression.secondarySuppressionListId);
-      add(suppression.individualSuppressionSecondaryListId);
-      add(suppression.emailDomainSuppressionSecondaryListId);
+      addSystem(suppression.secondarySuppressionListId);
+      addSystem(suppression.individualSuppressionSecondaryListId);
+      addSystem(suppression.emailDomainSuppressionSecondaryListId);
     }
 
-    if (list.listId != null) out.delete(String(list.listId));
+    const self = list.listId != null ? String(list.listId) : null;
+    for (const id of [self].filter(Boolean)) {
+      user.delete(id);
+      system.delete(id);
+    }
+    for (const id of user) system.delete(id);
   }
 
-  return [...out].sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+  return { user, system };
+}
+
+/**
+ * The ids of every list this segment depends on, from its own definition:
+ * the denominator for "how much of what this segment references did we also
+ * capture".
+ *
+ * @param {object} list a list definition, as found by findList
+ * @returns {string[]} distinct ids, sorted numerically where possible
+ */
+export function referencedListIds(list) {
+  const { user, system } = collectListReferences(list);
+  return sortIds([...user, ...system]);
+}
+
+/**
+ * The subset of referencedListIds expected to be HubSpot-managed internals
+ * with no fetchable definition, predicted from which field names them.
+ *
+ * @param {object} list a list definition, as found by findList
+ * @returns {string[]}
+ */
+export function systemReferencedListIds(list) {
+  return sortIds(collectListReferences(list).system);
 }
 
 /**
@@ -503,6 +547,7 @@ function summarizeList(list, root) {
     // legitimately has none); a number, possibly 0, when it does.
     filterCount: countFilters(list.filterBranch),
     referencedListIds: referencedListIds(list),
+    systemReferencedListIds: systemReferencedListIds(list),
   };
 
   if (summary.listId == null) {

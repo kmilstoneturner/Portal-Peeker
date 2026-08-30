@@ -535,6 +535,7 @@ describe('sidecar captures beside a segment', () => {
         fetchedLists: [],
         suppression: SUPP_BODY,
         membershipCounts: MEMB_BODY,
+        unfetchableListIds: [],
       });
     }
   });
@@ -619,6 +620,7 @@ describe('sidecar captures beside a segment', () => {
       fetchedLists: [],
       suppression: SUPP_BODY,
       membershipCounts: null,
+      unfetchableListIds: [],
     });
   });
 });
@@ -685,6 +687,38 @@ describe('fetching referenced definitions the page never loaded', () => {
     // list with no fetchable definition" and "you were not allowed".
     expect(result.failed).toEqual([{ id: '21', status: 403 }]);
     expect((await h.askPopup('pp:status')).related.fetchedLists).toHaveLength(2);
+  });
+
+  it('remembers a 404 and stops offering that id for refetch', async () => {
+    const h = harness({ url: LIST_URL });
+    await subject(h);
+    h.setRefresh(async () => ({ ok: false, status: 404, text: async () => 'gone' }));
+
+    const first = await h.askPopup('pp:fetch-referenced', { listIds: ['21'] });
+    expect(first.failed).toEqual([{ id: '21', status: 404 }]);
+    expect((await h.askPopup('pp:status')).related.unfetchableListIds).toEqual(['21']);
+
+    // A repeat ask does not even build the request again.
+    const again = await h.askPopup('pp:fetch-referenced', { listIds: ['21'] });
+    expect(again).toEqual({ ok: true, fetched: 0, failed: [] });
+    expect(h.refreshCalls).toHaveLength(1);
+  });
+
+  it('keeps everything else retryable', async () => {
+    // A 403 or a network drop is a moment, not a fact about the list.
+    const h = harness({ url: LIST_URL });
+    await subject(h);
+    h.setRefresh(async () => ({ ok: false, status: 403, text: async () => 'nope' }));
+
+    await h.askPopup('pp:fetch-referenced', { listIds: ['21'] });
+    // Nothing was learned and nothing was stored, so there is no related
+    // struct at all yet, and the popup keeps offering the fetch.
+    expect((await h.askPopup('pp:status')).related).toBeNull();
+
+    h.setRefresh(async (url) => ({ ok: true, status: 200, text: async () => definitionFor(url) }));
+    const retry = await h.askPopup('pp:fetch-referenced', { listIds: ['21'] });
+    expect(retry).toEqual({ ok: true, fetched: 1, failed: [] });
+    expect(h.refreshCalls).toHaveLength(2);
   });
 
   it('refuses without a segment capture to attach to', async () => {

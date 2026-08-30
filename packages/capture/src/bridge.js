@@ -54,6 +54,12 @@ function emptyRelated(forListId) {
     // repeat click can skip work without parsing bodies.
     fetchedLists: [],
     fetchedListIds: [],
+    // Ids that answered 404: no fetchable definition exists. Observed for the
+    // secondary suppression ids, which are system-materialized internals, and
+    // it would equally cover a reference to a deleted list. Remembered so the
+    // popup can say "unavailable" instead of offering a fetch that cannot
+    // succeed; a page reload starts the question over.
+    unfetchableListIds: [],
   };
 }
 
@@ -280,17 +286,22 @@ function storeSidecar(entry) {
 function readableRelated(current) {
   if (!current || current.domain !== CAPTURE_DOMAIN.LIST || !related) return null;
   if (!current.listId || related.forListId !== current.listId) return null;
+  // Learned 404s count as content: a struct that only knows "these ids have
+  // no fetchable definition" still changes what the popup should say, even
+  // before any body arrives.
   const empty =
     !related.listBatches.length &&
     !related.fetchedLists.length &&
     !related.suppression &&
-    !related.membershipCounts;
+    !related.membershipCounts &&
+    !related.unfetchableListIds.length;
   if (empty) return null;
   return {
     listBatches: [...related.listBatches],
     fetchedLists: [...related.fetchedLists],
     suppression: related.suppression,
     membershipCounts: related.membershipCounts,
+    unfetchableListIds: [...related.unfetchableListIds],
   };
 }
 
@@ -517,13 +528,16 @@ async function fetchReferenced(listIds) {
   const failed = [];
   for (const id of wanted) {
     if (related.fetchedListIds.includes(id)) continue;
+    if (related.unfetchableListIds.includes(id)) continue;
     const answer = await authedGet(inbounddbListUrl(location.origin, id, ids.portalId), csrf);
     if (!answer.ok) {
       // The status is the diagnosis: a 404 here has meant a list that exists
       // only as a system-managed internal (the secondary suppression ids),
       // which reads very differently from a 403 or a network drop. The popup
-      // shows it verbatim.
+      // shows it verbatim, and a 404 is remembered so it is not re-offered;
+      // anything else stays retryable.
       failed.push({ id, status: answer.status != null ? answer.status : answer.error });
+      if (answer.status === 404) related.unfetchableListIds.push(id);
       continue;
     }
     related.fetchedLists.push(answer.text);

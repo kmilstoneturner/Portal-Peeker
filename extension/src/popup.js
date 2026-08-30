@@ -257,7 +257,12 @@ function relatedFor(key, text, pieces) {
  */
 function relatedStateFor(domain, source) {
   if (domain !== CAPTURE_DOMAIN.LIST) return { ok: false, reason: 'Segment captures only' };
-  if (!source || !source.related) {
+  // The bundle needs bodies. A related struct that only remembers which ids
+  // answered 404 informs the Referenced row but gives an export nothing.
+  const r = source && source.related;
+  const hasBodies =
+    r && (relatedBodies(r).length > 0 || r.suppression != null || r.membershipCounts != null);
+  if (!hasBodies) {
     return {
       ok: false,
       reason:
@@ -657,12 +662,32 @@ function render(status) {
     const refs = summary.referencedListIds || [];
     if (refs.length === 0) {
       view.refs.textContent = 'none';
+      view.refs.title = '';
       view.fetchRefs.hidden = true;
     } else {
       const captured = new Set(listIdsInBatches(relatedBodies(status.related)));
+      // "System" ids are the ones no fetch can serve, known two ways: field
+      // provenance predicts them upfront (the *SecondaryListId fields name
+      // HubSpot-materialized internals), and a remembered 404 confirms one
+      // the hard way (that also catches a deleted user list). Both are shown
+      // as system rather than dangled as fetchable.
+      const learned404 = status.related?.unfetchableListIds || [];
+      const predicted = summary.systemReferencedListIds || [];
+      const system = refs.filter(
+        (id) => !captured.has(id) && (predicted.includes(id) || learned404.includes(id)),
+      );
       const have = refs.filter((id) => captured.has(id)).length;
-      view.refs.textContent = `${refs.length} list${refs.length === 1 ? '' : 's'} (${have} captured)`;
-      view.fetchRefs.hidden = have >= refs.length;
+      const missing = refs.length - have - system.length;
+
+      view.refs.textContent =
+        `${refs.length} list${refs.length === 1 ? '' : 's'} (${have} captured` +
+        `${system.length ? `, ${system.length} system` : ''})`;
+      view.refs.title = system.length
+        ? `List${system.length === 1 ? '' : 's'} ${system.join(', ')}: HubSpot-managed, with no fetchable definition ` +
+          '(named by a secondary-suppression field, or answered 404). Their effect is already spelled out in the ' +
+          'suppression settings this export carries.'
+        : '';
+      view.fetchRefs.hidden = missing <= 0;
       view.fetchRefs.disabled = false;
     }
   }
@@ -1175,7 +1200,11 @@ view.fetchRefs.addEventListener('click', async () => {
   const summary = summaryFor(snapshot.raw);
   const refs = summary.referencedListIds || [];
   const captured = new Set(listIdsInBatches(relatedBodies(snapshot.related)));
-  const missing = refs.filter((id) => !captured.has(id));
+  const unfetchable = snapshot.related?.unfetchableListIds || [];
+  const predicted = summary.systemReferencedListIds || [];
+  const missing = refs.filter(
+    (id) => !captured.has(id) && !unfetchable.includes(id) && !predicted.includes(id),
+  );
   if (!missing.length) return;
 
   view.fetchRefs.disabled = true;
