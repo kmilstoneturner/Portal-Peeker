@@ -16,6 +16,23 @@ const REFRESH_V4 = fixture('synthetic/refresh-response-v4.json');
 // A scrubbed mirror of GET /api/inbounddb-lists/v1/lists/{listId}: the segment
 // definition the lists tool fetches when a list opens.
 const LIST_GET = fixture('synthetic/inbounddb-list-get.json');
+// Scrubbed mirrors of GET /api/inbounddb-objects/v1/crm-objects/{type}/batch:
+// a contact (known type, full name resolvable) and a portal-defined custom
+// object (unknown type, secondaryIdentifier null), captured August 2026.
+const RECORD_CONTACT = fixture('synthetic/crm-objects-batch-contact.json');
+const RECORD_CUSTOM = fixture('synthetic/crm-objects-batch-custom.json');
+
+/** A minimal record envelope, for the shapes no committed fixture carries. */
+const recordBody = (objectTypeId, objectId, properties, extra = {}) =>
+  JSON.stringify({
+    [objectId]: {
+      objectTypeId,
+      objectId: Number(objectId),
+      portalId: 12345678,
+      properties,
+      ...extra,
+    },
+  });
 
 describe('summarize: editor-load capture', () => {
   const result = summarize(LOAD_V3);
@@ -162,6 +179,139 @@ describe('summarize: segment (list) capture', () => {
       expect(result.name).toBe('Enrolled in nurture flow');
       expect(result.filterCount).toBe(1);
     }
+  });
+});
+
+describe('summarize: record capture', () => {
+  const result = summarize(RECORD_CONTACT);
+
+  it('recognizes the crm-objects batch envelope and says which domain it is', () => {
+    expect(result.recognized).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.domain).toBe('record');
+  });
+
+  it('reads the popup rows, objectId as a string like every other id', () => {
+    expect(result.objectTypeId).toBe('0-1');
+    expect(result.objectId).toBe('9101');
+    expect(result.portalId).toBe('12345678');
+    expect(result.propertyCount).toBe(77);
+    // Records carry no version; the popup shows propertyCount in that slot.
+    expect(result.version).toBeNull();
+  });
+
+  it('resolves the display name from the per-type table', () => {
+    // Consumed by the AI context block and the download filename only. The
+    // popup rows never render it: identifiers are enough on screen.
+    expect(result.name).toBe('Ada Lovelace (Fixture)');
+  });
+
+  it('leaves every workflow and segment field null, and vice versa', () => {
+    expect(result.flowId).toBeNull();
+    expect(result.listId).toBeNull();
+    expect(result.actionCount).toBeNull();
+    expect(result.processingType).toBeNull();
+    expect(result.filterCount).toBeNull();
+
+    const flow = summarize(LOAD_V3);
+    expect(flow.objectId).toBeNull();
+    expect(flow.propertyCount).toBeNull();
+    const list = summarize(LIST_GET);
+    expect(list.objectId).toBeNull();
+    expect(list.propertyCount).toBeNull();
+  });
+
+  it('summarizes a custom object with no name rather than guessing one', () => {
+    // Unknown type, so the table has no row, and this capture's
+    // secondaryIdentifier is null (observed on the live custom object and on
+    // deals). Null then: a missing name reads better than a wrong one.
+    const custom = summarize(RECORD_CUSTOM);
+    expect(custom.recognized).toBe(true);
+    expect(custom.domain).toBe('record');
+    expect(custom.objectTypeId).toBe('2-7701');
+    expect(custom.objectId).toBe('9303');
+    expect(custom.name).toBeNull();
+    expect(custom.propertyCount).toBe(16);
+  });
+
+  it('names every tabled type from its own properties', () => {
+    for (const [objectTypeId, property, value] of [
+      ['0-2', 'name', 'Fixture Industries'],
+      ['0-3', 'dealname', 'Fixture renewal'],
+      ['0-5', 'subject', 'Fixture ticket'],
+      ['0-27', 'hs_task_subject', 'Fixture task'],
+      ['0-47', 'hs_meeting_title', 'Fixture meeting'],
+      ['0-48', 'hs_call_title', 'Fixture call'],
+      ['0-49', 'hs_email_subject', 'Fixture email'],
+    ]) {
+      const raw = recordBody(objectTypeId, '9505', { [property]: { value } });
+      expect(summarize(raw).name, objectTypeId).toBe(value);
+    }
+  });
+
+  it('resolves the name from a values-trimmed export too', () => {
+    // The property values trim collapses each entry to the bare value under
+    // its name; a previously exported file must still name itself.
+    const flat = recordBody('0-1', '9101', { firstname: 'Ada', lastname: 'Lovelace' });
+    expect(summarize(flat).name).toBe('Ada Lovelace');
+    expect(summarize(recordBody('0-1', '9101', { firstname: '' })).name).toBeNull();
+  });
+
+  it('joins what is present and degrades through secondaryIdentifier to null', () => {
+    // A contact with no last name yields the real first name, not a blank.
+    expect(
+      summarize(recordBody('0-1', '9101', { firstname: { value: 'Ada' } })).name,
+    ).toBe('Ada');
+    // Table properties absent entirely: fall back to the record's own
+    // secondaryIdentifier (email on contacts, domain on companies).
+    expect(
+      summarize(
+        recordBody('0-1', '9101', {}, { secondaryIdentifier: 'ada@fixture.example' }),
+      ).name,
+    ).toBe('ada@fixture.example');
+    // Nothing resolvable at all.
+    expect(summarize(recordBody('0-1', '9101', {})).name).toBeNull();
+  });
+
+  it('refuses a multi-record body whole rather than picking one', () => {
+    const two = JSON.stringify({
+      ...JSON.parse(recordBody('0-1', '9101', {})),
+      ...JSON.parse(recordBody('0-1', '9303', {})),
+    });
+    const result = summarize(two);
+    expect(result.recognized).toBe(false);
+    expect(result.domain).toBe('record');
+    expect(result.reason).toBe('response holds more than one record');
+  });
+
+  it('still reads as a record with _aiContext and _related spliced in', () => {
+    // A previously exported file must summarize like the capture it came from.
+    const parsed = JSON.parse(RECORD_CONTACT);
+    const wrapped = JSON.stringify({ _aiContext: { whatThisIs: 'x' }, _related: {}, ...parsed });
+    const again = summarize(wrapped);
+    expect(again.domain).toBe('record');
+    expect(again.objectId).toBe('9101');
+  });
+
+  it('refuses near-miss shapes rather than reading them as records', () => {
+    for (const [label, raw] of [
+      ['non-numeric key', '{"deals":{"objectTypeId":"0-3","objectId":1,"properties":{}}}'],
+      ['key disagreeing with objectId', '{"9101":{"objectTypeId":"0-1","objectId":9303,"properties":{}}}'],
+      ['unhyphenated objectTypeId', '{"9101":{"objectTypeId":"1","objectId":9101,"properties":{}}}'],
+      ['missing properties', '{"9101":{"objectTypeId":"0-1","objectId":9101}}'],
+      ['array root', '[{"objectTypeId":"0-1","objectId":9101,"properties":{}}]'],
+      ['empty map', '{}'],
+    ]) {
+      const result = summarize(raw);
+      expect(result.recognized, label).toBe(false);
+      expect(result.domain, label).not.toBe('record');
+    }
+  });
+
+  it('names all three domains in the not-found reason', () => {
+    expect(summarize('{"status":"error","message":"nope"}').reason).toBe(
+      'no flow, list, or record object found in response',
+    );
   });
 });
 

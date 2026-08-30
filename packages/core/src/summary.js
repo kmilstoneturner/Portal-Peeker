@@ -11,7 +11,7 @@
  * @typedef {object} CaptureSummary
  * @property {boolean} recognized  false means show the degraded popup state
  * @property {string|null} reason  why it was not recognized
- * @property {'flow'|'list'|null} domain  what kind of payload this is
+ * @property {'flow'|'list'|'record'|null} domain  what kind of payload this is
  * @property {string|null} name
  * @property {string|null} flowId
  * @property {string|null} listId
@@ -22,9 +22,11 @@
  * @property {number|null} actionCount
  * @property {boolean|null} enabled
  * @property {string|null} processingType  DYNAMIC | SNAPSHOT | MANUAL, lists only
- * @property {string|null} objectTypeId    lists only
+ * @property {string|null} objectTypeId    lists and records
  * @property {number|null} filterCount     lists only
  * @property {string[]|null} referencedListIds  lists only: ids this segment depends on
+ * @property {string|null} objectId        records only
+ * @property {number|null} propertyCount   records only
  */
 
 const EMPTY = {
@@ -44,6 +46,8 @@ const EMPTY = {
   objectTypeId: null,
   filterCount: null,
   referencedListIds: null,
+  objectId: null,
+  propertyCount: null,
 };
 
 /**
@@ -140,6 +144,127 @@ export function findList(root) {
   }
 
   return null;
+}
+
+/**
+ * Is this parsed body a CRM record envelope?
+ *
+ * GET /api/inbounddb-objects/v1/crm-objects/{objectTypeId}/batch answers with
+ * a map keyed by objectId string, each value re-declaring its own
+ * objectTypeId and objectId and carrying a properties map. Unlike findFlow
+ * and findList this is a total predicate on the root, not a search: it either
+ * holds for every root value or the body is not a record envelope. That
+ * totality is why summarize checks it FIRST: a record's reverseReferences or
+ * objectStates could in principle carry a stray flowId at depth, and letting
+ * findFlow's uncorroborated fallback see the body would put that question on
+ * the table at all.
+ *
+ * _aiContext and _related are skipped exactly as the other two finders skip
+ * them: a previously exported record file must still read as a record.
+ */
+export function isRecordEnvelope(root) {
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return false;
+  const entries = Object.entries(root).filter(
+    ([key]) => key !== '_aiContext' && key !== '_related',
+  );
+  if (entries.length === 0) return false;
+  return entries.every(([key, value]) => {
+    if (!/^\d+$/.test(key)) return false;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    if (typeof value.objectTypeId !== 'string' || !/^\d+-\d+$/.test(value.objectTypeId)) return false;
+    if (value.objectId == null || typeof value.objectId === 'object') return false;
+    // The map key is the objectId; a value disagreeing with its own key is
+    // not an envelope shape anyone has observed, and refusing it is cheaper
+    // than deciding which of the two ids to believe.
+    if (String(value.objectId) !== key) return false;
+    if (!value.properties || typeof value.properties !== 'object' || Array.isArray(value.properties)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Which properties name a record on screen, by object type.
+ *
+ * One table, same idiom as SETTINGS and MODIFICATIONS: adding a type is one
+ * line here and nothing anywhere else. The four standard CRM objects plus the
+ * four engagement types, which have record pages of their own (confirmed live
+ * on a task). HubSpot's own schema names a single primaryDisplayLabelPropertyName
+ * per type (firstname, name, dealname, subject: observed in the association
+ * cards RPC), which validates the concept; the contact row keeps lastname too
+ * because half a person's name is a worse label than the whole one.
+ *
+ * Custom objects are deliberately absent: their display property is chosen by
+ * whoever defined the object and cannot be known without metadata this
+ * capture does not carry. They fall through to secondaryIdentifier, then to
+ * null. The resolved name is used by the AI context block and the download
+ * filename only, never rendered in the popup rows.
+ */
+export const RECORD_NAME_PROPERTIES = {
+  '0-1': ['firstname', 'lastname'],
+  '0-2': ['name'],
+  '0-3': ['dealname'],
+  '0-5': ['subject'],
+  '0-27': ['hs_task_subject'],
+  '0-47': ['hs_meeting_title'],
+  '0-48': ['hs_call_title'],
+  '0-49': ['hs_email_subject'],
+};
+
+function propertyValue(record, name) {
+  const entry = record.properties ? record.properties[name] : null;
+  // A values-trimmed export carries the value directly under the name, so a
+  // previously exported file still resolves its own display name.
+  if (typeof entry === 'string') return entry !== '' ? entry : null;
+  if (!entry || typeof entry !== 'object') return null;
+  return typeof entry.value === 'string' && entry.value !== '' ? entry.value : null;
+}
+
+function recordName(record) {
+  const wanted = RECORD_NAME_PROPERTIES[record.objectTypeId] || [];
+  const parts = wanted.map((name) => propertyValue(record, name)).filter(Boolean);
+  if (parts.length) return parts.join(' ');
+  // Populated on contacts (email) and companies (domain); null on deals and
+  // custom objects, both observed. Null then, honestly: a missing name reads
+  // better than a guessed one.
+  return typeof record.secondaryIdentifier === 'string' && record.secondaryIdentifier !== ''
+    ? record.secondaryIdentifier
+    : null;
+}
+
+/**
+ * The record half of summarize. Only ever called on a body isRecordEnvelope
+ * accepted, so every value is a record; the remaining question is how many.
+ */
+function summarizeRecord(root) {
+  const entries = Object.entries(root).filter(
+    ([key]) => key !== '_aiContext' && key !== '_related',
+  );
+
+  if (entries.length !== 1) {
+    // classifyUrl refuses multi-id batch URLs, so a multi-record body should
+    // never reach a snapshot; a pasted or hand-built file still can. Picking
+    // one record to describe would be a guess presented as a fact.
+    return {
+      ...EMPTY,
+      domain: 'record',
+      reason: 'response holds more than one record',
+    };
+  }
+
+  const record = entries[0][1];
+  return {
+    ...EMPTY,
+    recognized: true,
+    reason: null,
+    domain: 'record',
+    name: recordName(record),
+    objectTypeId: record.objectTypeId,
+    objectId: String(record.objectId),
+    portalId: record.portalId != null ? String(record.portalId) : null,
+    propertyCount: Object.keys(record.properties).length,
+  };
 }
 
 /**
@@ -290,7 +415,14 @@ export function summarize(rawText) {
     return { ...EMPTY, reason: 'body is not JSON' };
   }
 
-  // Flows first, but only on real evidence. A corroborated flow wins
+  // Records first, because the record check is a total predicate on the root
+  // rather than a search: a body it accepts cannot also be a flow (a flow
+  // root carries scalar fields) or a list (a list root carries a scalar
+  // listId), while the reverse is not as clean: a record's reverseReferences
+  // could carry a stray flowId at depth for findFlow's fallback to trip on.
+  if (isRecordEnvelope(parsed)) return summarizeRecord(parsed);
+
+  // Flows next, but only on real evidence. A corroborated flow wins
   // outright: workflows legitimately carry listId and filterBranch deep
   // inside associatedLists, so a payload with a real flow in it is a flow
   // capture whatever else it mentions. findFlow's uncorroborated fallback
@@ -301,7 +433,7 @@ export function summarize(rawText) {
   if (!located || !located.corroborated) {
     const foundList = findList(parsed);
     if (foundList) return summarizeList(foundList.list, parsed);
-    if (!located) return { ...EMPTY, reason: 'no flow or list object found in response' };
+    if (!located) return { ...EMPTY, reason: 'no flow, list, or record object found in response' };
   }
 
   const flow = located.flow;

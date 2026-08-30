@@ -16,7 +16,7 @@
 import { WINDOW_CHANNEL, PAGE_MSG, POPUP_MSG, WORKER_MSG, CAPTURE_KIND, CAPTURE_DOMAIN, SIDECAR_KIND, REFRESH_ERROR } from './protocol.js';
 import { classifyUrl, hybridUrl, inbounddbListUrl, idsFromPageUrl } from './endpoints.js';
 
-/** @type {null | {domain: string, kind: string, raw: string, url: string, flowId: string|null, listId: string|null, capturedAt: number, byteLength: number}} */
+/** @type {null | {domain: string, kind: string, raw: string, url: string, flowId: string|null, listId: string|null, objectTypeId: string|null, objectId: string|null, capturedAt: number, byteLength: number}} */
 let snapshot = null;
 
 /**
@@ -121,12 +121,62 @@ function readCookie(name) {
 function store(entry) {
   const ids = idsFromPageUrl(location.href);
 
-  if (entry.domain === CAPTURE_DOMAIN.LIST) {
+  if (entry.domain === CAPTURE_DOMAIN.RECORD) {
+    // The record guard fails CLOSED, the deliberate opposite of the flow
+    // guard below. Measured reasons: HubSpot SPA-navigates between records
+    // without a document reload, and two different records' batch responses
+    // have been observed arriving in one document lifetime; and record pages
+    // hydrate other object types through sibling endpoints. So: no pair in
+    // the page URL means no capture, and the request's own pair must equal
+    // the page's pair on both members. All four ids come from URLs, never
+    // from a parsed body, so a mismatch is a fact and there is no fallback
+    // that would not be a guess.
+    //
+    // Known cost, observed live: opening a record's preview panel fetches its
+    // batch while the URL still names the record behind the panel, so the
+    // body is refused here; clicking View record then navigates without
+    // refetching, and the popup's empty state asks for a reload. That is
+    // missing over wrong working as intended. If the reload ever proves too
+    // costly, the safe refinement is a one-slot pending body promoted only
+    // when the page pair comes to equal its pair exactly, never a looser
+    // guard here.
+    if (!ids.objectTypeId || !ids.objectId) return;
+
+    const hit = classifyUrl(entry.url, location.href);
+    const urlTypeId =
+      entry.objectTypeIdFromUrl != null ? String(entry.objectTypeIdFromUrl) : hit && hit.objectTypeId;
+    const urlObjectId =
+      entry.objectIdFromUrl != null ? String(entry.objectIdFromUrl) : hit && hit.objectId;
+    if (!urlTypeId || !urlObjectId) return;
+    if (urlTypeId !== ids.objectTypeId || urlObjectId !== ids.objectId) return;
+
+    snapshot = {
+      domain: CAPTURE_DOMAIN.RECORD,
+      kind: entry.kind,
+      raw: entry.raw,
+      url: entry.url,
+      flowId: null,
+      listId: null,
+      objectTypeId: ids.objectTypeId,
+      objectId: ids.objectId,
+      capturedAt: entry.capturedAt || Date.now(),
+      byteLength: byteLengthOf(entry.raw),
+    };
+  } else if (entry.domain === CAPTURE_DOMAIN.LIST) {
     // A list body arriving on a workflows page is hydration, not the subject:
     // the editor fetches goal and suppression lists through the same endpoint
     // family, and letting one of those replace a flow capture would hand the
     // user the wrong JSON with the right buttons.
     if (ids.app === 'workflows') return;
+
+    // A list body arriving on a RECORD page is hydration too: a record can
+    // legitimately reference lists (a contact's list memberships), and before
+    // this guard existed a definition fetched there would have become the
+    // snapshot, offering a segment export on a person's record. Unreachable
+    // in measured traffic today (no record page fetched a list definition),
+    // guarded anyway because a HubSpot change would make it reachable
+    // silently.
+    if (ids.objectTypeId && ids.objectId) return;
 
     // Same reasoning within the lists tool: a segment page also hydrates the
     // lists its own filters refer to (IN_LIST, association lists, suppression),
@@ -144,10 +194,17 @@ function store(entry) {
       url: entry.url,
       flowId: null,
       listId: urlListId ? String(urlListId) : readIdLoosely(entry.raw, 'listId'),
+      objectTypeId: null,
+      objectId: null,
       capturedAt: entry.capturedAt || Date.now(),
       byteLength: byteLengthOf(entry.raw),
     };
   } else {
+    // The flow branch has no page guard at all, and that is a considered
+    // asymmetry rather than an oversight: flow bodies only travel on
+    // /workflows/ pages (cross-app navigation is a full page load), and the
+    // guard in readable() fails open on purpose because hiding a valid flow
+    // capture is recoverable while the record hazards above do not apply.
     const flowId =
       entry.flowIdFromUrl ||
       (classifyUrl(entry.url, location.href) || {}).flowId ||
@@ -160,6 +217,8 @@ function store(entry) {
       url: entry.url,
       flowId: flowId ? String(flowId) : null,
       listId: null,
+      objectTypeId: null,
+      objectId: null,
       capturedAt: entry.capturedAt || Date.now(),
       byteLength: byteLengthOf(entry.raw),
     };
@@ -180,8 +239,12 @@ function storeSidecar(entry) {
 
   // Same posture as list subjects: on a workflows page the flow is the
   // subject, and hydration bodies for its goal or suppression lists are not
-  // ours to keep.
+  // ours to keep. On a record page the record is, and the suppression and
+  // membership sidecars carry their own list id in the path, so without this
+  // guard they would be kept and later handed out beside a wrongly stored
+  // list snapshot.
   if (ids.app === 'workflows') return;
+  if (ids.objectTypeId && ids.objectId) return;
 
   // Whose sidecar is this? An id in the request path is authoritative and, when
   // the page URL also names a list, the two must agree. getBatch carries no id
@@ -245,11 +308,24 @@ function readableRelated(current) {
 function readable() {
   if (!snapshot) return null;
   const ids = idsFromPageUrl(location.href);
+  if (snapshot.domain === CAPTURE_DOMAIN.RECORD) {
+    // Fails closed, unlike the flow arm below: a page URL naming no record
+    // yields no capture rather than the previous record's. The SPA hazard is
+    // measured, not theoretical, and a wrong record is unrecoverable in a way
+    // a missing one is not.
+    if (!ids.objectTypeId || !ids.objectId) return null;
+    if (ids.objectTypeId !== snapshot.objectTypeId || ids.objectId !== snapshot.objectId) {
+      return null;
+    }
+    return snapshot;
+  }
   if (snapshot.domain === CAPTURE_DOMAIN.LIST) {
     if (ids.listId && snapshot.listId && ids.listId !== snapshot.listId) return null;
-    // A list capture never belongs to a workflows page (store refuses them),
-    // but an SPA could in principle navigate there afterwards.
+    // A list capture never belongs to a workflows page or a record page
+    // (store refuses them), but an SPA could in principle navigate to either
+    // afterwards.
     if (ids.app === 'workflows') return null;
+    if (ids.objectTypeId && ids.objectId) return null;
     return snapshot;
   }
   if (ids.flowId && snapshot.flowId && ids.flowId !== snapshot.flowId) return null;
@@ -270,11 +346,19 @@ window.addEventListener('message', (event) => {
   if (data.type === PAGE_MSG.CAPTURE) {
     store({
       kind: data.kind === CAPTURE_KIND.SAVE ? CAPTURE_KIND.SAVE : CAPTURE_KIND.LOAD,
-      domain: data.domain === CAPTURE_DOMAIN.LIST ? CAPTURE_DOMAIN.LIST : CAPTURE_DOMAIN.FLOW,
+      // Membership test, not a two-way ternary: a third domain coerced to
+      // flow here would be labelled wrong while looking fine everywhere
+      // downstream. An unknown word still falls back to flow, matching what
+      // an older interceptor would have meant by omitting it.
+      domain: Object.values(CAPTURE_DOMAIN).includes(data.domain)
+        ? data.domain
+        : CAPTURE_DOMAIN.FLOW,
       raw: data.body,
       url: data.url,
       flowIdFromUrl: data.flowIdFromUrl,
       listIdFromUrl: data.listIdFromUrl,
+      objectTypeIdFromUrl: data.objectTypeIdFromUrl,
+      objectIdFromUrl: data.objectIdFromUrl,
       capturedAt: data.capturedAt,
     });
     return;
@@ -299,14 +383,34 @@ async function refresh() {
   // The snapshot decides what a refetch means; with no snapshot, the page URL
   // does. This is also what lets the popup offer a first fetch on a segment or
   // workflow page where the passive capture was missed (popup opened before the
-  // page finished loading, or the SPA navigated without refetching).
+  // page finished loading, or the SPA navigated without refetching). Records
+  // are the exception: with no snapshot there is no captured URL to repeat and
+  // nothing is constructed, so there is no first fetch on a record page.
   const domain =
     (current && current.domain) ||
-    (ids.listId ? CAPTURE_DOMAIN.LIST : CAPTURE_DOMAIN.FLOW);
+    (ids.objectTypeId && ids.objectId
+      ? CAPTURE_DOMAIN.RECORD
+      : ids.listId
+        ? CAPTURE_DOMAIN.LIST
+        : CAPTURE_DOMAIN.FLOW);
 
   let url;
   let stamp;
-  if (domain === CAPTURE_DOMAIN.LIST) {
+  if (domain === CAPTURE_DOMAIN.RECORD) {
+    // Reuse the exact URL the page itself used, always. The batch endpoint's
+    // query params are shape-bearing (see the note above idsFromPageUrl in
+    // endpoints.js), so constructing a URL could silently return fewer
+    // properties than the passive capture did.
+    if (!current || current.domain !== CAPTURE_DOMAIN.RECORD || !current.url) {
+      return { ok: false, error: REFRESH_ERROR.NO_CAPTURED_URL };
+    }
+    url = current.url;
+    stamp = {
+      domain,
+      objectTypeIdFromUrl: current.objectTypeId,
+      objectIdFromUrl: current.objectId,
+    };
+  } else if (domain === CAPTURE_DOMAIN.LIST) {
     // Prefer refetching the exact URL the page itself used: it demonstrably
     // works, query params included. Constructing from the page URL is the
     // fallback for a first fetch.
@@ -441,6 +545,8 @@ function statusPayload() {
     kind: current.kind,
     flowId: current.flowId,
     listId: current.listId,
+    objectTypeId: current.objectTypeId,
+    objectId: current.objectId,
     capturedAt: current.capturedAt,
     byteLength: current.byteLength,
     raw: current.raw,
@@ -472,6 +578,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
               domain: current.domain,
               flowId: current.flowId,
               listId: current.listId,
+              objectTypeId: current.objectTypeId,
+              objectId: current.objectId,
               kind: current.kind,
               capturedAt: current.capturedAt,
               related: readableRelated(current),

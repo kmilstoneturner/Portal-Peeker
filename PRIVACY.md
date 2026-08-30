@@ -4,13 +4,13 @@ Last updated: 2026-08-28. Applies to the Portal Peeker Chrome extension, all ver
 
 ## The short version
 
-Portal Peeker reads the JSON that HubSpot's workflow editor and lists (segments) tool
-exchange with HubSpot's own API, holds it in the memory of the tab you are looking at, and
-shows you what is in it. If you switch on the API names setting, it also reads your
-portal's property configuration from responses HubSpot's own record page already fetched.
-It does not send any of that anywhere. There is no server, no account, no telemetry, and no
-analytics. The developer cannot see your workflows or segments, and there is no mechanism
-by which they could.
+Portal Peeker reads the JSON that HubSpot's workflow editor, lists (segments) tool, and CRM
+record pages exchange with HubSpot's own API, holds it in the memory of the tab you are
+looking at, and shows you what is in it. If you switch on the API names setting, it also
+reads your portal's property configuration from responses HubSpot's own record page already
+fetched. It does not send any of that anywhere. There is no server, no account, no
+telemetry, and no analytics. The developer cannot see your workflows, segments, or records,
+and there is no mechanism by which they could.
 
 ## What Portal Peeker reads
 
@@ -23,9 +23,9 @@ different. On the property settings page and in the create record dialog it read
 is already in the page's own markup.
 
 `*://*.hubspot.com/contacts/*` is broader than the pages the extension actually uses, which
-are CRM record pages (for the optional API names annotation) and segment pages (for
-capture). HubSpot opens a record from a list without reloading the page, and a narrower
-pattern would simply fail to load when you got there. On any other page under that path the
+are CRM record pages (for capture, and for the optional API names annotation) and segment
+pages (for capture). HubSpot opens a record from a list without reloading the page, and a
+narrower pattern would simply fail to load when you got there. On any other page under that path the
 extension checks the address, finds neither a record nor a segment definition in the
 traffic it watches for, and does nothing further. The same applies under
 `*://*.hubspot.com/object-builder/*`: if no create dialog is on screen, the script finds
@@ -52,13 +52,27 @@ page URL names, and are only ever written into an export when the "Include refer
 lists" checkbox is on; the file then carries a `-related` suffix. They live in the same
 tab memory as the capture and go when it does.
 
+On CRM record pages it observes one request that HubSpot's own page makes:
+
+- `GET /api/inbounddb-objects/v1/crm-objects/{objectTypeId}/batch`, which the page issues
+  when a record opens. Its response is the whole record: identity, every property value
+  with the metadata describing how it was written, object state, and your permissions on
+  it. One endpoint serves every object type, custom objects included.
+
+Everything else a record page loads (timelines, association cards, the calling widget) is
+deliberately not captured. The batch response above is the record; the rest would pull
+other records' data into a capture named for this one.
+
 It keeps the **response** to those requests. Every other request the page makes is
 ignored. Requests and responses are never modified, blocked, or delayed.
 
-The response is a workflow or segment definition. Depending on what it does, it can contain
-things like flow, list, and portal identifiers, action configuration, filter criteria and
-the values filters compare against, email and task bodies, and the numeric HubSpot user IDs
-of people it refers to. Portal Peeker treats all of it as opaque text.
+The response is a workflow definition, a segment definition, or a CRM record. Depending on
+what it does, it can contain things like flow, list, and portal identifiers, action
+configuration, filter criteria and the values filters compare against, email and task
+bodies, and the numeric HubSpot user IDs of people it refers to. A record's capture goes
+further and holds that record's actual property values: a contact's capture contains the
+person's name, email address, phone number, and whatever else your portal stores about
+them. Portal Peeker treats all of it as opaque text.
 
 On CRM record pages under `*://*.hubspot.com/contacts/*`, and **only if you have switched on
 Show internal API names**, it observes one further kind of request that HubSpot itself makes:
@@ -70,7 +84,9 @@ Show internal API names**, it observes one further kind of request that HubSpot 
 
 Those responses are your portal's **property configuration**: the internal name, label and
 type of each property on that object type. They are not record data. They contain no contact,
-company or deal values, and nothing about the person whose record you are looking at.
+company or deal values, and nothing about the person whose record you are looking at. (The
+record's values themselves are a separate capture, described under "Capturing CRM records"
+below, and this setting neither enables nor limits it.)
 
 Two things about it are worth stating precisely, because they are the reason it is acceptable
 at all. **Portal Peeker does not request it.** HubSpot's own page does, to draw the page you
@@ -101,7 +117,7 @@ The same is true of the property list described above, on record pages. It is he
 memory of that one tab, is never written to `chrome.storage` or to disk, and goes when the
 tab does. The build greps that script for `chrome.storage` alongside the two capture scripts.
 
-The only thing Portal Peeker stores between sessions is the state of its checkboxes: the four
+The only thing Portal Peeker stores between sessions is the state of its checkboxes: the six
 export options, kept in the popup's own `localStorage`, and the Settings page toggles, kept in
 `chrome.storage.local`. That is a handful of true/false values. It contains nothing about any
 workflow, portal, or person, and no property name, label, or id ever reaches either store.
@@ -117,8 +133,9 @@ Requests to HubSpot's own API, on the HubSpot origin you are already signed in t
 only when you ask for them by pressing a button:
 
 - **Refresh**, or **Fetch from HubSpot** on the empty state, sends one `GET` to fetch the
-  current saved state of the workflow or segment you are looking at. It is the same
-  request the page itself makes.
+  last saved state of the workflow, segment, or record you are looking at. It is the same
+  request the page itself makes; on a record it repeats the page's own request byte for
+  byte, so it needs a capture to repeat and the empty state offers no Fetch button there.
 - **Fetch missing**, on a segment's Referenced row, sends one `GET` per referenced list
   whose definition the page never loaded (typically the suppression lists), to the same
   list-definition endpoint the capture reads.
@@ -137,8 +154,9 @@ through the browser's normal download flow. In both cases you have chosen to mov
 and where it goes next is up to you. Portal Peeker has no visibility into either.
 
 Workflow and segment JSON can contain business logic, filter values, and free text written
-by your colleagues. Treat an exported file the way you would treat any other export from
-your CRM, particularly before pasting one into a third-party tool such as an AI assistant.
+by your colleagues. A record export goes further: it is one person's or company's actual
+data. Treat an exported file the way you would treat any other export from your CRM,
+particularly before pasting one into a third-party tool such as an AI assistant.
 
 ## Cookies
 
@@ -188,6 +206,30 @@ anything HubSpot drew, and it makes no change to your data or your portal.
 
 This setting is off until you turn it on.
 
+## Capturing CRM records
+
+Opening a CRM record page captures it, the same way opening a workflow or a segment does.
+What is captured is the batch response described under "What Portal Peeker reads": one JSON
+document holding that record's property values and object metadata. This is record data in
+the fullest sense, and on a contact it is personal data.
+
+It is held in the memory of that one tab, like every other capture: never written to
+`chrome.storage` or to disk by the extension, never transmitted anywhere, and discarded
+when the page reloads or the tab closes. It reaches your clipboard or your Downloads folder
+only when you press Copy or Download.
+
+The popup itself displays identifiers only: the object type id, the record id, the portal
+id, and a property count. It never renders a property value, a person's name included. The
+one place a resolved record name appears is in the filename of a download and inside the
+optional AI context block of the exported file, both of which exist because you chose to
+export.
+
+The optional **Only export property values** checkbox reduces each property to just its
+value, keyed by the property name, dropping the change metadata around it (most of the
+payload by size) and the block describing your own permissions on the record. It never
+alters a value and adds nothing. Like the workflow trim, it is a size feature and nothing
+more: the values it keeps are exactly the personal data.
+
 ## What Portal Peeker never does
 
 - It never sends your data to the developer or to any third party.
@@ -199,10 +241,11 @@ This setting is off until you turn it on.
 
 ## One thing it is not
 
-The optional **Trim to workflow logic** checkbox makes an export smaller by dropping fields.
-It is a size feature. It is not redaction, it does not remove personal data, and it does not
-make an exported file safe to share. The free-text fields it keeps are exactly where
-sensitive content lives.
+The optional **Trim to workflow logic** and **Only export property values** checkboxes make
+an export smaller by dropping fields. They are size features. Neither is redaction, neither
+removes personal data, and neither makes an exported file safe to share. The free-text
+fields the workflow trim keeps, and the property values the record trim keeps, are exactly
+where sensitive content lives.
 
 ## Children
 

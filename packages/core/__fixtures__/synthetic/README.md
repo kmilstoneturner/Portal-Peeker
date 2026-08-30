@@ -49,6 +49,43 @@ It holds exactly the two lists `inbounddb-list-get.json` references, 4243 and
 4244, so the pair also pins the coverage arithmetic: a bundle built from
 these two fixtures covers two of two references.
 
+## `crm-objects-batch-contact.json`
+
+A scrubbed mirror of a real record capture: the response of
+`GET /api/inbounddb-objects/v1/crm-objects/0-1/batch?...&id={objectId}`, taken
+from a contact on a trial portal in August 2026 and verified byte-identical to
+the page's own copy by hashing both before scrubbing. Structure, key order, and
+HubSpot vocabulary are exactly as returned; every identifier, timestamp, email,
+and piece of authored content was replaced.
+
+What it establishes: the thirteen-key envelope (identity, `properties`,
+`objectStates`, `reverseReferences`, `mergeAudits`, `archivalHistory`,
+`secondaryIdentifier`, `currentUserPermissions`, state fields), 77 properties
+each wrapped in the full provenance envelope (`versions` plus ten metadata
+fields), and a resolvable name for the `RECORD_NAME_PROPERTIES` table
+(`firstname` plus `lastname`). The `objectStates` entries carry
+provenance-named fields (`timestamp`, `sourceId`) at envelope depth, which is
+the live proof that the record trim's two-level walk must not recurse.
+
+## `crm-objects-batch-custom.json`
+
+The same endpoint on a **portal-defined custom object** (scrubbed type
+`2-7701`), which is the fixture that proves the pattern generalizes: the type
+is just a path segment, the envelope is identical, and the custom properties
+(`primary_name`, `category`) sit beside the `hs_*` set. Its
+`secondaryIdentifier` is null, as observed live, so it also pins the name
+fallback chain ending honestly at null for a type the table does not know.
+
+## `record-duplicate-key.synthetic.json`
+
+Hand-authored from an observed pathology: HubSpot's own responses have emitted
+a literal duplicate JSON key (`"type"` twice in one object, seen in a timeline
+variant). This fixture plants that shape inside a record envelope so the
+`_aiContext` splice proves it tolerates and **preserves** the duplicate: the
+validity parse is discard-only, and a reserializing implementation would
+silently collapse it. Never reformat this file; a JSON round trip destroys the
+one thing it exists to carry.
+
 ## `trim-cases.synthetic.json`
 
 A workflow that could not exist, built so that every trim rule and **every
@@ -109,4 +146,9 @@ Anything else must be scrubbed before it lands here, and `npm run
 check:no-portal-data` enforces it: any six-or-more-digit number not on the
 allowlist in `tools/check-no-portal-data.mjs` fails the build. When you add a
 scrubbed fixture, add its synthetic identifiers to that allowlist deliberately,
-picking values that are obviously invented.
+picking values that are obviously invented. The guard keys on digit runs only,
+so emails, UUIDs, hostnames, and authored text are scrubbed by hand.
+
+Scrub in place, never through a formatter: preserving the returned key order,
+whitespace, and any duplicate keys is part of what a fixture tests, and a JSON
+round trip normalizes all three away.

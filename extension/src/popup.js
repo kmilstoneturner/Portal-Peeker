@@ -9,7 +9,7 @@
 //
 // Two stores, and the split is deliberate: the backend follows the consumer.
 //
-// The four export checkboxes are read by this page and nowhere else, and they
+// The six export checkboxes are read by this page and nowhere else, and they
 // describe a file this page builds. They stay in the popup's own localStorage.
 //
 // The Settings page toggles are obeyed by a content script running on
@@ -24,6 +24,7 @@ import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND, CAPTURE_DOMAIN } from './lib/pr
 import { idsFromPageUrl } from './lib/endpoints.js';
 import { summarize, listIdsInBatches } from './lib/summary.js';
 import { trim, estimateTokens } from './lib/trim.js';
+import { recordTrim } from './lib/record-trim.js';
 import { uiNumbersFromText, addUiNumbers } from './lib/ui-numbers.js';
 import { buildAiContext, checkAiContext, addAiContext, MODIFICATIONS } from './lib/ai-context.js';
 import { addRelated, checkRelated } from './lib/related.js';
@@ -70,6 +71,10 @@ const view = {
   related: el('opt-related'),
   relatedInfo: el('related-info'),
   relatedTip: el('related-tip'),
+  values: el('opt-values'),
+  valuesLabel: el('opt-values-label'),
+  valuesInfo: el('values-info'),
+  valuesTip: el('values-tip'),
   context: el('opt-context'),
   contextInfo: el('context-info'),
   contextTip: el('context-tip'),
@@ -86,6 +91,7 @@ const STORAGE = {
   strip: 'portal-peeker.stripHtml',
   numbers: 'portal-peeker.uiNumbers',
   related: 'portal-peeker.relatedCaptures',
+  values: 'portal-peeker.propertyValues',
   context: 'portal-peeker.aiContext',
 };
 
@@ -117,6 +123,20 @@ function formatWhen(ms) {
 function localDateStamp(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+// Filename slug of a resolved record name: lowercase, runs of anything outside
+// a-z0-9 collapsed to single hyphens, capped at 40 characters, and dropped
+// entirely when nothing survives (a fully non-ASCII name). The identifiers
+// stay in the stem regardless, so the file is identifiable without it.
+function nameSlug(name) {
+  if (typeof name !== 'string') return '';
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
 }
 
 /**
@@ -151,10 +171,15 @@ const CAPTURED_FROM = {
 };
 
 // The rows above Portal ID name what was captured. One table per domain, so a
-// segment is never presented under a "Flow" label or vice versa.
+// segment is never presented under a "Flow" label or vice versa. The record
+// row set is deliberately identifiers only: no property value, a person's
+// name included, is ever rendered in the popup. The resolved display name
+// exists for the AI context block and the download filename, where a human
+// reads the file later, not for this screen.
 const ROW_LABELS = {
   [CAPTURE_DOMAIN.FLOW]: { name: 'Flow', id: 'Flow ID', version: 'Version' },
   [CAPTURE_DOMAIN.LIST]: { name: 'Segment', id: 'List ID', version: 'Version' },
+  [CAPTURE_DOMAIN.RECORD]: { name: 'Object type', id: 'Record ID', version: 'Properties' },
 };
 
 /**
@@ -170,10 +195,12 @@ function processingTypeLabel(processingType) {
 }
 
 /** Which domain a snapshot belongs to: the bridge's URL-derived word wins,
- * the parsed body fills in for a bridge from before segments existed. */
+ * the parsed body fills in for a bridge from before that domain existed. */
 function domainOf(source, summary) {
+  if (source && source.domain === CAPTURE_DOMAIN.RECORD) return CAPTURE_DOMAIN.RECORD;
   if (source && source.domain === CAPTURE_DOMAIN.LIST) return CAPTURE_DOMAIN.LIST;
   if (source && source.domain === CAPTURE_DOMAIN.FLOW) return CAPTURE_DOMAIN.FLOW;
+  if (summary && summary.domain === 'record') return CAPTURE_DOMAIN.RECORD;
   return summary && summary.domain === 'list' ? CAPTURE_DOMAIN.LIST : CAPTURE_DOMAIN.FLOW;
 }
 
@@ -247,6 +274,12 @@ function summaryFor(raw) {
   return variants.get('summary');
 }
 
+/** Whether the open record capture can be reduced to property values. */
+function recordTrimFor(raw) {
+  if (!variants.has('values')) variants.set('values', recordTrim(raw));
+  return variants.get('values');
+}
+
 /** Context-carrying variant of an export, for the size and token rows. */
 function contextedFor(key, text, meta) {
   if (!variants.has(key)) variants.set(key, addAiContext(text, buildAiContext(meta)));
@@ -261,6 +294,7 @@ const trimWanted = () => view.trim.checked && !view.trim.disabled;
 const stripWanted = () => view.strip.checked && !view.strip.disabled;
 const numbersWanted = () => view.numbers.checked && !view.numbers.disabled;
 const relatedWanted = () => view.related.checked && !view.related.disabled;
+const valuesWanted = () => view.values.checked && !view.values.disabled;
 const contextWanted = () => view.context.checked && !view.context.disabled;
 
 /**
@@ -281,7 +315,21 @@ function contextMeta(summary, source, applied) {
     modifications: applied,
   };
 
-  if (domainOf(source, summary) === CAPTURE_DOMAIN.LIST) {
+  const domain = domainOf(source, summary);
+
+  if (domain === CAPTURE_DOMAIN.RECORD) {
+    return {
+      ...shared,
+      domain: 'record',
+      // "editor load" would describe a page this capture never saw.
+      capturedFrom: source.kind === CAPTURE_KIND.LOAD ? 'record page load' : shared.capturedFrom,
+      objectTypeId: summary.objectTypeId || source.objectTypeId || null,
+      objectId: summary.objectId || source.objectId || null,
+      recordName: summary.name,
+    };
+  }
+
+  if (domain === CAPTURE_DOMAIN.LIST) {
     return {
       ...shared,
       domain: 'list',
@@ -344,6 +392,17 @@ function buildExport(raw, source, cached = false) {
     if (stripHtml) note('htmlStrippedFromEmailBodies');
   }
 
+  // The record trim. Its own if, not an else on the flow trim: both read
+  // disabled state and are mutually exclusive by domain (renderOptions never
+  // enables both), so at most one runs, and stating that as data flow rather
+  // than control flow keeps it true if a domain is ever added.
+  if (valuesWanted()) {
+    const result = cached ? recordTrimFor(raw) : recordTrim(raw);
+    if (!result.ok) return { failed: 'values' };
+    text = result.output;
+    note('trimmedToPropertyValues');
+  }
+
   // Numbering inserts text rather than reserializing, so it runs on the raw
   // capture just as safely as on a trim. It is nobody's sub-option.
   if (numbersWanted()) {
@@ -404,15 +463,34 @@ function renderSizes() {
   const raw = snapshot.raw;
   const rawBytes = snapshot.byteLength;
   const rawTokens = estimateTokens(raw);
+  const domain = domainOf(snapshot, summaryFor(raw));
 
   // The percentage is shown whether or not the box is ticked, so the payoff is
-  // visible before committing to it.
-  const preview = trimFor(raw, view.strip.checked);
-  if (preview.ok) {
-    const pct = Math.round(100 - (preview.outputBytes / rawBytes) * 100);
-    view.trimLabel.textContent = `Trim to workflow logic (est. ${pct}%)`;
+  // visible before committing to it. Each trim's preview runs only on its own
+  // domain: computing a doomed flow trim on every record render, or the
+  // reverse, would be pure wasted work on every checkbox toggle.
+  if (domain === CAPTURE_DOMAIN.FLOW) {
+    const preview = trimFor(raw, view.strip.checked);
+    if (preview.ok) {
+      const pct = Math.round(100 - (preview.outputBytes / rawBytes) * 100);
+      view.trimLabel.textContent = `Trim to workflow logic (est. ${pct}%)`;
+    } else {
+      view.trimLabel.textContent = 'Trim to workflow logic';
+    }
   } else {
     view.trimLabel.textContent = 'Trim to workflow logic';
+  }
+
+  if (domain === CAPTURE_DOMAIN.RECORD) {
+    const preview = recordTrimFor(raw);
+    if (preview.ok) {
+      const pct = Math.round(100 - (preview.outputBytes / rawBytes) * 100);
+      view.valuesLabel.textContent = `Only export property values (est. ${pct}%)`;
+    } else {
+      view.valuesLabel.textContent = 'Only export property values';
+    }
+  } else {
+    view.valuesLabel.textContent = 'Only export property values';
   }
 
   // The rows show the export as configured, whichever boxes are ticked, so the
@@ -431,26 +509,30 @@ function renderSizes() {
   setDelta(view.tokens, `~${num(rawTokens)}`, `~${num(estimateTokens(built.text))}`);
 }
 
-function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, relatedState) {
+function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, relatedState, valuesCheck) {
   // The box swaps by capture type. Trimming, stripping, and numbering are
   // workflow features (their rules and their walker only know flow
-  // structure), and bundling referenced lists is a segment feature, so each
-  // capture shows only the options that can apply to it, rather than a column
-  // of grey checkboxes explaining the other domain. The hidden ones are also
-  // disabled, which is what buildExport actually consults.
+  // structure), bundling referenced lists is a segment feature, and the
+  // property values trim is a record feature, so each capture shows only the
+  // options that can apply to it, rather than a column of grey checkboxes
+  // explaining the other domains. The hidden ones are also disabled, which is
+  // what buildExport actually consults.
   //
   // Nothing here writes to a checkbox's checked state: the widgets carry the
   // user's stored preference, and a disabled box is simply not obeyed (the
   // *Wanted() guards). Forcing one off here would get persisted by the next
-  // toggle and silently erase a preference for the other domain.
+  // toggle and silently erase a preference for another domain.
+  const isFlow = domain === CAPTURE_DOMAIN.FLOW;
   const isList = domain === CAPTURE_DOMAIN.LIST;
+  const isRecord = domain === CAPTURE_DOMAIN.RECORD;
 
-  view.trim.parentElement.hidden = isList;
-  view.strip.parentElement.hidden = isList;
-  view.numbers.parentElement.hidden = isList;
+  view.trim.parentElement.hidden = !isFlow;
+  view.strip.parentElement.hidden = !isFlow;
+  view.numbers.parentElement.hidden = !isFlow;
   view.related.parentElement.hidden = !isList;
+  view.values.parentElement.hidden = !isRecord;
 
-  view.trim.disabled = !trimmable || isList;
+  view.trim.disabled = !trimmable || !isFlow;
   view.trim.parentElement.classList.toggle('is-disabled', view.trim.disabled);
 
   // Stripping HTML rewrites values, which only a trim's output can absorb, so
@@ -463,13 +545,24 @@ function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, re
   // works on raw bytes. It is withdrawn only when the graph has a shape the
   // walker does not recognize, and then entirely rather than partially: a file
   // where some cards carry numbers and some do not looks complete while lying.
-  const numbersOk = Boolean(numbersCheck && numbersCheck.ok) && !isList;
+  const numbersOk = Boolean(numbersCheck && numbersCheck.ok) && isFlow;
   view.numbers.disabled = !numbersOk;
   view.numbers.parentElement.classList.toggle('is-disabled', !numbersOk);
   view.numbers.parentElement.title =
-    numbersOk || isList
+    numbersOk || !isFlow
       ? ''
       : `Editor numbers unavailable: ${numbersCheck ? numbersCheck.reason : 'no capture'}`;
+
+  // The record trim withdraws whole, like every other option: an unrecognized
+  // record shape disables the checkbox with the reason rather than shipping a
+  // partial file that looks complete.
+  const valuesOk = Boolean(valuesCheck && valuesCheck.ok) && isRecord;
+  view.values.disabled = !valuesOk;
+  view.values.parentElement.classList.toggle('is-disabled', !valuesOk);
+  view.values.parentElement.title =
+    valuesOk || !isRecord
+      ? ''
+      : `Property values trim unavailable: ${valuesCheck ? valuesCheck.reason : 'no capture'}`;
 
   // Bundling is available only when the bridge actually holds bodies captured
   // beside this segment. The title carries the reason when it does not, so a
@@ -506,21 +599,38 @@ function render(status) {
 
   const summary = summaryFor(status.raw);
   const domain = domainOf(status, summary);
-  const labels = ROW_LABELS[domain];
+  const labels = ROW_LABELS[domain] || ROW_LABELS[CAPTURE_DOMAIN.FLOW];
+  const isFlow = domain === CAPTURE_DOMAIN.FLOW;
+  const isRecord = domain === CAPTURE_DOMAIN.RECORD;
 
   view.nameLabel.textContent = labels.name;
   view.idLabel.textContent = labels.id;
   view.versionLabel.textContent = labels.version;
 
-  view.name.textContent = summary.name || 'Name not found in payload';
-  // The bridge knows the flow or list ID from the URL even when the body will
-  // not parse, so prefer whichever is present.
-  view.flow.textContent =
-    domain === CAPTURE_DOMAIN.LIST
+  // On a record the first row is the raw objectTypeId, deliberately: the
+  // popup never renders a property value, a person's name included, and a
+  // friendly word for the type would need a type map this extension refuses
+  // to maintain.
+  view.name.textContent = isRecord
+    ? summary.objectTypeId || status.objectTypeId || 'not found'
+    : summary.name || 'Name not found in payload';
+  // The bridge knows the id from the URL even when the body will not parse,
+  // so prefer whichever is present.
+  view.flow.textContent = isRecord
+    ? summary.objectId || status.objectId || 'not found'
+    : domain === CAPTURE_DOMAIN.LIST
       ? summary.listId || status.listId || 'not found'
       : summary.flowId || status.flowId || 'not found';
   view.portal.textContent = summary.portalId || 'not found';
-  view.version.textContent = summary.version != null ? String(summary.version) : 'not found';
+  // Records have no version (objectVersion is null on every observed
+  // payload), so their third row carries the property count instead.
+  view.version.textContent = isRecord
+    ? summary.propertyCount != null
+      ? num(summary.propertyCount)
+      : 'not found'
+    : summary.version != null
+      ? String(summary.version)
+      : 'not found';
   view.when.textContent = formatWhen(status.capturedAt);
 
   // The two segment-only rows. Filters is the row this feature exists for:
@@ -557,20 +667,25 @@ function render(status) {
     }
   }
 
-  const trimCheck = trimFor(status.raw, view.strip.checked);
+  // Each trim's availability is computed only for its own domain; the stub
+  // for the other domains keeps renderOptions honest without running a trim
+  // that is guaranteed to refuse.
+  const trimCheck = isFlow ? trimFor(status.raw, view.strip.checked) : { ok: false, reason: null };
   renderOptions(
     domain,
     trimCheck.ok,
     trimCheck.reason,
-    numbersFor(status.raw),
+    isFlow ? numbersFor(status.raw) : null,
     contextCheckFor(status.raw),
     relatedStateFor(domain, status),
+    isRecord ? recordTrimFor(status.raw) : null,
   );
 
   // For a workflow, an unavailable trim is part of the degraded story. For a
-  // segment it is the normal state (trimming is a workflow feature), so only
-  // the parser's own verdict decides the banner there.
-  const healthy = isList ? summary.recognized : summary.recognized && trimCheck.ok;
+  // segment or a record it is the normal state (that trim belongs to another
+  // domain), so only the parser's own verdict decides the banner there. The
+  // record trim carries its own withdrawal on its checkbox title instead.
+  const healthy = isFlow ? summary.recognized && trimCheck.ok : summary.recognized;
   if (healthy) {
     view.degraded.hidden = true;
   } else {
@@ -580,9 +695,9 @@ function render(status) {
     // complete while missing whatever the rules never reached, so it is
     // withdrawn rather than attempted.
     const detail = summary.recognized ? trimCheck.reason : summary.reason;
-    view.degraded.textContent = isList
-      ? `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes.`
-      : `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes. Trimming is unavailable for this payload.`;
+    view.degraded.textContent = isFlow
+      ? `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes. Trimming is unavailable for this payload.`
+      : `Shape not fully recognized: ${detail}. Copy and Download still work on the exact captured bytes.`;
   }
 
   renderSizes();
@@ -629,7 +744,17 @@ async function load() {
 
   const onHubSpot = typeof tab?.url === 'string' && /:\/\/[^/]*hubspot\.com\//.test(tab.url);
   const pageIds = onHubSpot ? idsFromPageUrl(tab.url) : idsFromPageUrl('');
-  const subject = pageIds.flowId ? 'workflow' : pageIds.listId ? 'segment' : null;
+  const subject = pageIds.flowId
+    ? 'workflow'
+    : pageIds.listId
+      ? 'segment'
+      : pageIds.objectTypeId && pageIds.objectId
+        ? 'record'
+        : null;
+  // Refresh replays the captured URL verbatim, and records deliberately
+  // construct none (endpoints.js builds no record URL), so first-fetch is
+  // only an offer the bridge can honor on a workflow or a segment.
+  const canFetch = subject === 'workflow' || subject === 'segment';
 
   const status = await ask(POPUP_MSG.STATUS);
 
@@ -651,14 +776,17 @@ async function load() {
 
     // The bridge is listening but saw nothing. When the URL names a workflow
     // or a segment, the bridge can fetch it on request, which beats asking the
-    // user to reload and hope.
+    // user to reload and hope. A record gets the reload hint only: there is no
+    // captured URL to repeat, so a Fetch button here could not work.
     showEmpty(
-      subject
-        ? `Nothing captured for this ${subject} yet. Fetch it from HubSpot, or reload the page.`
-        : pageIds.app === 'workflows'
-          ? 'Nothing captured for this flow yet. Reload the page, or open the workflow again.'
-          : 'Nothing captured yet. Open a workflow or a segment and reload the page.',
-      { canFetch: Boolean(subject) },
+      subject === 'record'
+        ? 'Nothing captured for this record yet. Reload the page.'
+        : subject
+          ? `Nothing captured for this ${subject} yet. Fetch it from HubSpot, or reload the page.`
+          : pageIds.app === 'workflows'
+            ? 'Nothing captured for this flow yet. Reload the page, or open the workflow again.'
+            : 'Nothing captured yet. Open a workflow, a segment, or a record and reload the page.',
+      { canFetch },
     );
     return;
   }
@@ -674,6 +802,9 @@ function restoreOptions() {
   try {
     view.trim.checked = localStorage.getItem(STORAGE.trim) === 'true';
     view.strip.checked = localStorage.getItem(STORAGE.strip) === 'true';
+    // The property values trim defaults off like the workflow trim: both
+    // change bytes, and only the two pure insertions earn a default of on.
+    view.values.checked = localStorage.getItem(STORAGE.values) === 'true';
     // Numbers, referenced lists, and the context block default on: only an
     // explicit untick, stored as 'false', turns them off. Absent means
     // checked, matching the markup.
@@ -691,6 +822,7 @@ function persistOptions() {
     localStorage.setItem(STORAGE.strip, String(view.strip.checked));
     localStorage.setItem(STORAGE.numbers, String(view.numbers.checked));
     localStorage.setItem(STORAGE.related, String(view.related.checked));
+    localStorage.setItem(STORAGE.values, String(view.values.checked));
     localStorage.setItem(STORAGE.context, String(view.context.checked));
   } catch {
     /* preference is not worth an error message */
@@ -700,15 +832,18 @@ function persistOptions() {
 function onOptionChange() {
   persistOptions();
   if (!snapshot) return;
-  const trimCheck = trimFor(snapshot.raw, view.strip.checked);
   const domain = domainOf(snapshot, summaryFor(snapshot.raw));
+  const isFlow = domain === CAPTURE_DOMAIN.FLOW;
+  const isRecord = domain === CAPTURE_DOMAIN.RECORD;
+  const trimCheck = isFlow ? trimFor(snapshot.raw, view.strip.checked) : { ok: false, reason: null };
   renderOptions(
     domain,
     trimCheck.ok,
     trimCheck.reason,
-    numbersFor(snapshot.raw),
+    isFlow ? numbersFor(snapshot.raw) : null,
     contextCheckFor(snapshot.raw),
     relatedStateFor(domain, snapshot),
+    isRecord ? recordTrimFor(snapshot.raw) : null,
   );
   renderSizes();
   say('');
@@ -718,6 +853,7 @@ view.trim.addEventListener('change', onOptionChange);
 view.strip.addEventListener('change', onOptionChange);
 view.numbers.addEventListener('change', onOptionChange);
 view.related.addEventListener('change', onOptionChange);
+view.values.addEventListener('change', onOptionChange);
 view.context.addEventListener('change', onOptionChange);
 
 // ---------------------------------------------------------------- nav
@@ -879,6 +1015,7 @@ function wireTip(button, panel) {
 
 wireTip(view.numbersInfo, view.numbersTip);
 wireTip(view.relatedInfo, view.relatedTip);
+wireTip(view.valuesInfo, view.valuesTip);
 wireTip(view.contextInfo, view.contextTip);
 
 document.addEventListener('keydown', (event) => {
@@ -902,6 +1039,7 @@ const FAILURE = {
   trim: 'Could not trim this payload.',
   numbers: 'Could not number this payload.',
   related: 'Could not bundle the referenced lists.',
+  values: 'Could not trim this record to property values.',
   context: 'Could not add the AI context block.',
 };
 
@@ -945,13 +1083,29 @@ view.download.addEventListener('click', async () => {
   // The suffix is the only marker that a file is not a verbatim capture. The
   // extension adds exactly three keys in band, uiNumber, _related, and
   // _aiContext, each behind its own checkbox, and a file carrying one always
-  // carries the matching suffix. Segment files carry a list- prefix on the
-  // id, because a bare number in a filename no longer says which kind of
-  // export it is.
-  const stem =
-    domainOf(payload, summaryFor(payload.raw)) === CAPTURE_DOMAIN.LIST
-      ? `list-${payload.listId || 'unknown'}`
-      : payload.flowId || 'unknown-flow';
+  // carries the matching suffix (the property values trim only removes, so
+  // that claim is untouched by it). Segment files carry a list- prefix on the
+  // id, and record files a record- prefix on the type and id pair, because a
+  // bare number in a filename no longer says which kind of export it is.
+  //
+  // Fresh summarize, not summaryFor: the payload was just pulled and may
+  // postdate the snapshot the variants cache describes.
+  const summary = summarize(payload.raw);
+  const domain = domainOf(payload, summary);
+  let stem;
+  if (domain === CAPTURE_DOMAIN.RECORD) {
+    // Identifiers first, slug last, so the file stays identifiable when the
+    // slug drops out. This is the one place a resolved record name reaches
+    // the filesystem; the popup itself never displays it.
+    const slug = nameSlug(summary.name);
+    const typeId = summary.objectTypeId || payload.objectTypeId || 'unknown';
+    const recordId = summary.objectId || payload.objectId || 'unknown';
+    stem = `record-${typeId}-${recordId}${slug ? `-${slug}` : ''}`;
+  } else if (domain === CAPTURE_DOMAIN.LIST) {
+    stem = `list-${payload.listId || 'unknown'}`;
+  } else {
+    stem = payload.flowId || 'unknown-flow';
+  }
   const name = `${localDateStamp()}-${stem}${output.suffix}.json`;
   const url = URL.createObjectURL(new Blob([output.text], { type: 'application/json' }));
   const anchor = document.createElement('a');
@@ -1061,7 +1215,9 @@ function refreshErrorText(result) {
     case REFRESH_ERROR.CSRF_UNREADABLE:
       return 'Could not read the csrf.app cookie. Reload the page and try again.';
     case REFRESH_ERROR.NO_ID:
-      return 'Could not tell which workflow or segment this is. Open one and try again.';
+      return 'Could not tell which workflow, segment, or record this is. Open one and try again.';
+    case REFRESH_ERROR.NO_CAPTURED_URL:
+      return 'Reload the page to capture this record. Refresh repeats the exact request the page made, so it needs a capture first.';
     case REFRESH_ERROR.HTTP:
       return result.status === 401
         ? 'HubSpot returned 401. Reload the page and try again. Your previous capture is untouched.'

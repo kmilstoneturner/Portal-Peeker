@@ -817,6 +817,196 @@ describe('segment refresh', () => {
   });
 });
 
+describe('record capture, end to end on a record page', () => {
+  const RECORD_URL = 'https://app.hubspot.com/contacts/12345678/record/0-1/9101';
+  const RECORD_GET =
+    '/api/inbounddb-objects/v1/crm-objects/0-1/batch?portalId=12345678&allPropertiesFetchMode=latest_version&includeAllProperties=true&flpViewValidation=false&id=9101';
+  const RECORD_BODY = JSON.stringify({
+    9101: {
+      objectTypeId: '0-1',
+      objectId: 9101,
+      portalId: 12345678,
+      properties: { firstname: { value: 'Fixture' } },
+    },
+  });
+
+  it('captures the batch GET and hands it to the popup with its ids', async () => {
+    const h = harness({ url: RECORD_URL });
+    h.setNativeFetch(async () => okResponse(RECORD_BODY));
+    await h.pageFetch(RECORD_GET);
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.domain).toBe('record');
+    expect(status.kind).toBe('load');
+    expect(status.objectTypeId).toBe('0-1');
+    expect(status.objectId).toBe('9101');
+    expect(status.flowId).toBeNull();
+    expect(status.listId).toBeNull();
+    expect(status.raw).toBe(RECORD_BODY);
+    expect(h.sent).toEqual([{ type: 'pp:captured' }]);
+
+    const payload = await h.askPopup('pp:payload');
+    expect(payload.domain).toBe('record');
+    expect(payload.objectTypeId).toBe('0-1');
+    expect(payload.objectId).toBe('9101');
+    expect(payload.raw).toBe(RECORD_BODY);
+  });
+
+  it('lets the observed double-fire settle last-write-wins', async () => {
+    // Record pages fire the batch endpoint twice (a validation variant rides
+    // second). Both match the guard, both are the same record: the later body
+    // simply replaces the earlier one.
+    const h = harness({ url: RECORD_URL });
+    h.setNativeFetch(async () => okResponse(RECORD_BODY));
+    await h.pageFetch(RECORD_GET);
+    const second = JSON.stringify({ 9101: { objectTypeId: '0-1', objectId: 9101, properties: {} } });
+    h.setNativeFetch(async () => okResponse(second));
+    await h.pageFetch(
+      '/api/inbounddb-objects/v1/crm-objects/0-1/batch?portalId=12345678&flpViewValidation=true&id=9101',
+    );
+    await flush();
+
+    expect((await h.askPopup('pp:status')).raw).toBe(second);
+  });
+
+  it('refuses a batch for a sibling type or another record of the same type', async () => {
+    const h = harness({ url: RECORD_URL });
+    h.setNativeFetch(async () => okResponse('{"9303":{}}'));
+    await h.pageFetch('/api/inbounddb-objects/v1/crm-objects/0-2/batch?portalId=12345678&id=9303');
+    await h.pageFetch('/api/inbounddb-objects/v1/crm-objects/0-1/batch?portalId=12345678&id=9303');
+    await flush();
+
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    expect(h.sent).toEqual([]);
+  });
+
+  it('refuses a record body on a page whose URL names no record: fail closed', async () => {
+    // The deliberate opposite of the flow guard. The same document outlives
+    // the record it belongs to (SPA navigation, measured live), so a body
+    // that cannot be tied to the page pair is never kept, badge included.
+    for (const url of [
+      'https://app.hubspot.com/contacts/12345678/objects/0-1/views/all/list',
+      LIST_URL,
+      EDITOR_URL,
+    ]) {
+      const h = harness({ url });
+      h.setNativeFetch(async () => okResponse(RECORD_BODY));
+      await h.pageFetch(RECORD_GET);
+      await flush();
+
+      expect((await h.askPopup('pp:status')).hasCapture, url).toBe(false);
+      expect(h.sent, url).toEqual([]);
+    }
+  });
+
+  it('refuses a list body and list sidecars on a record page', async () => {
+    // The regression this domain closes: before records existed, a list
+    // definition fetched on a record page passed every guard (ids.listId is
+    // null there, so the mismatch check never fired) and became the snapshot,
+    // and storeSidecar kept suppression bodies the same way. A segment export
+    // offered on a person's record, with a _related bundle.
+    const h = harness({ url: RECORD_URL });
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+    await h.pageFetch(LIST_GET);
+    h.setNativeFetch(async () => okResponse('[]'));
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/getBatch?portalId=12345678');
+    h.setNativeFetch(async () => okResponse('{}'));
+    await h.pageFetch('/api/inbounddb-lists/v1/lists/4242/suppression?portalId=12345678');
+    await flush();
+
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    expect(h.sent).toEqual([]);
+
+    // And the record itself still lands cleanly afterwards, with nothing
+    // inherited.
+    h.setNativeFetch(async () => okResponse(RECORD_BODY));
+    await h.pageFetch(RECORD_GET);
+    await flush();
+    const status = await h.askPopup('pp:status');
+    expect(status.domain).toBe('record');
+    expect(status.related == null).toBe(true);
+  });
+});
+
+describe('record SPA staleness guard', () => {
+  const RECORD_URL = 'https://app.hubspot.com/contacts/12345678/record/0-3/9202';
+  const RECORD_GET = '/api/inbounddb-objects/v1/crm-objects/0-3/batch?portalId=12345678&id=9202';
+  const RECORD_BODY = '{"9202":{"objectTypeId":"0-3","objectId":9202,"properties":{}}}';
+
+  let h;
+  beforeEach(async () => {
+    h = harness({ url: RECORD_URL });
+    h.setNativeFetch(async () => okResponse(RECORD_BODY));
+    await h.pageFetch(RECORD_GET);
+    await flush();
+  });
+
+  it('reports no capture after the SPA moves to a different record', async () => {
+    // Measured live: same document, two records' batch responses in one
+    // lifetime. Without this the popup offers the deal's JSON on the
+    // company's page.
+    h.isolatedLocation.href = 'https://app.hubspot.com/contacts/12345678/record/0-2/9301';
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    expect((await h.askPopup('pp:payload')).hasCapture).toBe(false);
+  });
+
+  it('reports no capture once the page no longer names a record at all', async () => {
+    // Fail closed, unlike the flow guard: no pair in the URL means no answer,
+    // not a benefit of the doubt.
+    h.isolatedLocation.href = 'https://app.hubspot.com/contacts/12345678/objects/0-3/views/all/list';
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+  });
+
+  it('still reports the capture while the pair matches, query params aside', async () => {
+    // SPA navigation appends query params (portalId, clienttimeout) to the
+    // page URL; the pair is read from the pathname and still matches.
+    h.isolatedLocation.href = `${RECORD_URL}?portalId=12345678&clienttimeout=14000`;
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(true);
+  });
+});
+
+describe('record refresh', () => {
+  const RECORD_URL = 'https://app.hubspot.com/contacts/12345678/record/0-1/9101';
+  const RECORD_GET =
+    '/api/inbounddb-objects/v1/crm-objects/0-1/batch?portalId=12345678&includeAllProperties=true&id=9101';
+  const RECORD_BODY = '{"9101":{"objectTypeId":"0-1","objectId":9101,"properties":{}}}';
+
+  it('repeats the exact URL the page used, and keeps the ids on the new snapshot', async () => {
+    const h = harness({ url: RECORD_URL });
+    h.setNativeFetch(async () => okResponse(RECORD_BODY));
+    await h.pageFetch(RECORD_GET);
+    await flush();
+
+    h.setRefresh(async () => ({ ok: true, status: 200, text: async () => RECORD_BODY }));
+    const result = await h.askPopup('pp:refresh');
+    expect(result.ok).toBe(true);
+
+    const call = h.refreshCalls[0];
+    // Verbatim, params and all: the batch endpoint's query params are
+    // shape-bearing, and a constructed set could silently return fewer
+    // properties than the passive capture did.
+    expect(call.url).toBe(`${ORIGIN}${RECORD_GET}`);
+    expect(call.init.headers['x-hubspot-csrf-hubspotapi']).toBe('csrf-token-value');
+
+    const status = await h.askPopup('pp:status');
+    expect(status.kind).toBe('refresh');
+    expect(status.domain).toBe('record');
+    expect(status.objectTypeId).toBe('0-1');
+    expect(status.objectId).toBe('9101');
+  });
+
+  it('answers no-captured-url rather than constructing a first fetch', async () => {
+    // There is deliberately no crmObjectsBatchUrl builder, so with nothing
+    // captured there is nothing to repeat, and no request goes out.
+    const h = harness({ url: RECORD_URL });
+    const result = await h.askPopup('pp:refresh');
+    expect(result).toEqual({ ok: false, error: 'no-captured-url' });
+    expect(h.refreshCalls).toEqual([]);
+  });
+});
+
 describe('refresh without a readable csrf.app cookie', () => {
   it('gets its own error code rather than a generic failure', async () => {
     // A distinct code, because the fix is "reload the page", not "check your

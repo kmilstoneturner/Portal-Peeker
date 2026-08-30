@@ -35,6 +35,8 @@ function emit(hit, status, bodyText) {
         url: hit.url,
         flowIdFromUrl: hit.flowId,
         listIdFromUrl: hit.listId,
+        objectTypeIdFromUrl: hit.objectTypeId,
+        objectIdFromUrl: hit.objectId,
         status,
         capturedAt: Date.now(),
         body: bodyText,

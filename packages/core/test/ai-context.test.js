@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { buildAiContext, checkAiContext, addAiContext, MODIFICATIONS } from '../src/ai-context.js';
+import { buildAiContext, checkAiContext, addAiContext, MODIFICATIONS, CONTEXT_DOMAINS } from '../src/ai-context.js';
 import { trim } from '../src/trim.js';
 import { addUiNumbers } from '../src/ui-numbers.js';
 import { summarize } from '../src/summary.js';
@@ -15,6 +15,12 @@ const LOAD_V3 = fixture('synthetic/hybrid-get-v3.json');
 const SAVE_V4 = fixture('synthetic/save-response-v4.json');
 const REFRESH_V4 = fixture('synthetic/refresh-response-v4.json');
 const LIST_GET = fixture('synthetic/inbounddb-list-get.json');
+const RECORD_CONTACT = fixture('synthetic/crm-objects-batch-contact.json');
+const RECORD_CUSTOM = fixture('synthetic/crm-objects-batch-custom.json');
+// Carries a literal duplicate key ("type" twice in one object), which HubSpot
+// has been observed emitting. The splice must tolerate it: the validity parse
+// is discard-only, and JSON.parse reads duplicates last-wins.
+const RECORD_DUPLICATE = fixture('synthetic/record-duplicate-key.synthetic.json');
 
 const ALL_FIXTURES = [
   ['ui-number cases', CASES],
@@ -23,6 +29,9 @@ const ALL_FIXTURES = [
   ['save v4', SAVE_V4],
   ['refresh v4', REFRESH_V4],
   ['list get', LIST_GET],
+  ['record contact', RECORD_CONTACT],
+  ['record custom', RECORD_CUSTOM],
+  ['record duplicate key', RECORD_DUPLICATE],
 ];
 
 // Synthetic throughout: no identifier here is real, and none is long enough to
@@ -48,6 +57,23 @@ const flags = (trimmed, stripped, numbered) => ({
   editorNumbersAdded: numbered,
 });
 
+// One meta per domain the block can speak for, so every table-driven loop
+// below exercises each domain's own prose rather than handing a record entry a
+// flow meta, which would emit nothing and prove nothing. The completeness test
+// pins this object to CONTEXT_DOMAINS, so a fourth domain fails here first.
+const DOMAIN_META = {
+  flow: META,
+  list: { ...META, domain: 'list', listId: '4242', listName: 'Test segment' },
+  record: {
+    ...META,
+    domain: 'record',
+    capturedFrom: 'record page load',
+    objectTypeId: '0-1',
+    objectId: '9101',
+    recordName: 'Test person',
+  },
+};
+
 // ------------------------------------------------------------------ insertion
 //
 // The whole design rests on one property: the block is a single contiguous span
@@ -68,9 +94,12 @@ describe('addAiContext inserts one span and changes nothing else', () => {
 
     it(`the block is the first key and the rest keep their order: ${label}`, () => {
       const output = addAiContext(raw, buildAiContext(META)).output;
+      // First in the text, checked in the text: Object.keys puts integer-like
+      // keys first whatever the document says, so on a record envelope (keyed
+      // by objectId) a parsed-order check could never see the block leading.
+      expect(output.slice(output.indexOf('{') + 1).trimStart().startsWith('"_aiContext"')).toBe(true);
       const keys = Object.keys(JSON.parse(output));
-      expect(keys[0]).toBe('_aiContext');
-      expect(keys.slice(1)).toEqual(Object.keys(JSON.parse(raw)));
+      expect(keys.filter((k) => k !== '_aiContext')).toEqual(Object.keys(JSON.parse(raw)));
     });
   }
 
@@ -340,6 +369,91 @@ describe('buildAiContext says only what it was told', () => {
     expect(after.filterCount).toBe(summarize(LIST_GET).filterCount);
   });
 
+  // ---------------------------------------------------------------- records
+
+  it('describes a record export as a record, under a record key', () => {
+    const block = buildAiContext(DOMAIN_META.record);
+    expect(block.whatThisIs).toContain('CRM record');
+    expect(block.workflow).toBeUndefined();
+    expect(block.list).toBeUndefined();
+    expect(block.record).toEqual({
+      objectTypeId: '0-1',
+      objectId: '9101',
+      name: 'Test person',
+      portalId: '9931',
+    });
+    expect(block.capture).toEqual({
+      capturedAt: META.capturedAtIso,
+      capturedFrom: 'record page load',
+    });
+  });
+
+  it('drops an unresolved record name rather than reporting null', () => {
+    const block = buildAiContext({ ...DOMAIN_META.record, recordName: null });
+    expect(block.record).toEqual({ objectTypeId: '0-1', objectId: '9101', portalId: '9931' });
+  });
+
+  it('gives a record reader property guidance instead of workflow guidance', () => {
+    const block = buildAiContext(DOMAIN_META.record);
+    const prose = block.howToUse.join(' ');
+    // Nothing ran, so the untouched line holds...
+    expect(prose).toContain('byte-for-byte what HubSpot sent');
+    // ...the properties map and its provenance are explained...
+    expect(prose).toContain('properties map');
+    expect(prose).toContain('value field');
+    // ...the reader is told this is real record data...
+    expect(prose).toContain('personal information');
+    // ...and nothing about actions or filter trees, which this file cannot
+    // have.
+    expect(prose).not.toContain('actionId');
+    expect(prose).not.toContain('filterBranch');
+    expect(prose).not.toContain('Editor card numbers');
+    // Removability holds regardless of domain.
+    expect(block.howToUse[0]).toContain('delete this one key');
+  });
+
+  it('describes the property values trim when it ran, and the provenance when it did not', () => {
+    const withValues = buildAiContext({
+      ...DOMAIN_META.record,
+      modifications: { trimmedToPropertyValues: true },
+    }).howToUse.join(' ');
+    expect(withValues).toContain('directly under its property name');
+    expect(withValues).toContain('currentUserPermissions');
+    expect(withValues).not.toContain('byte-for-byte what HubSpot sent');
+
+    const without = buildAiContext(DOMAIN_META.record).howToUse.join(' ');
+    expect(without).toContain('full provenance');
+    expect(without).toContain('versions');
+  });
+
+  it('a record option in a workflow block changes nothing, on or off', () => {
+    const flowProse = (mods) => buildAiContext({ ...META, modifications: mods }).howToUse.join(' ');
+    expect(flowProse({ trimmedToPropertyValues: true })).toBe(flowProse({}));
+    expect(flowProse({})).not.toContain('value field');
+  });
+
+  it('splices into real record captures without disturbing what the parser reads', () => {
+    for (const [label, raw] of [['contact', RECORD_CONTACT], ['custom', RECORD_CUSTOM]]) {
+      const before = summarize(raw);
+      const result = addAiContext(raw, buildAiContext(DOMAIN_META.record));
+      expect(result.ok, label).toBe(true);
+      const after = summarize(result.output);
+      expect(after.domain, label).toBe('record');
+      expect(after.objectId, label).toBe(before.objectId);
+      expect(after.propertyCount, label).toBe(before.propertyCount);
+    }
+  });
+
+  it('the splice preserves a duplicate key rather than collapsing it', () => {
+    // The validity parse is discard-only, so the observed duplicate survives
+    // in the output text exactly as HubSpot emitted it. A reserializing
+    // implementation would silently drop it, which is what this pins.
+    const result = addAiContext(RECORD_DUPLICATE, buildAiContext(DOMAIN_META.record));
+    expect(result.ok, result.reason || '').toBe(true);
+    expect(result.output).toContain('"type":"NAMED","name":"wallet","type":"NAMED"');
+    expect(summarize(result.output).objectId).toBe('9707');
+  });
+
   // ---------------------------------------------------------------- the table
   //
   // These are the tests that have to keep passing when someone adds a fifth
@@ -370,6 +484,19 @@ describe('buildAiContext says only what it was told', () => {
     }
   });
 
+  it('covers every domain the table and the block can name', () => {
+    // The guard that would have caught the silent-no-prose failure: a
+    // MODIFICATIONS entry whose domain the DOMAINS table does not know emits
+    // nothing, and a domain these tests have no meta for is a domain whose
+    // prose no loop below ever reads.
+    expect(Object.keys(DOMAIN_META).sort()).toEqual([...CONTEXT_DOMAINS].sort());
+    for (const entry of MODIFICATIONS) {
+      expect(CONTEXT_DOMAINS, `${entry.flag} names a domain the block cannot speak for`).toContain(
+        entry.domain || 'flow',
+      );
+    }
+  });
+
   it('changes what it says when any one modification changes', () => {
     // Baseline has everything on, so the all-false line is out of the way and
     // the difference can only come from the flag under test. Each entry is
@@ -377,11 +504,9 @@ describe('buildAiContext says only what it was told', () => {
     // about options from the export's domain: flipping a segment option in a
     // workflow block is supposed to change nothing.
     const all = Object.fromEntries(MODIFICATIONS.map((m) => [m.flag, true]));
-    const metaFor = (domain) =>
-      domain === 'list' ? { ...META, domain: 'list', listId: '4242' } : META;
 
     for (const entry of MODIFICATIONS) {
-      const meta = metaFor(entry.domain || 'flow');
+      const meta = DOMAIN_META[entry.domain || 'flow'];
       const withAll = buildAiContext({ ...meta, modifications: all }).howToUse.join(' ');
       const withoutOne = buildAiContext({
         ...meta,
@@ -405,22 +530,31 @@ describe('buildAiContext says only what it was told', () => {
     expect(Object.keys(spiked.modifications)).toEqual(MODIFICATIONS.map((m) => m.flag));
   });
 
-  it('keeps the prose plain: ASCII, no links, and never calls anything safe', () => {
-    for (let bits = 0; bits < 2 ** MODIFICATIONS.length; bits += 1) {
-      const block = buildAiContext({
-        ...META,
-        modifications: Object.fromEntries(
-          MODIFICATIONS.map((m, i) => [m.flag, Boolean(bits & (1 << i))]),
-        ),
-      });
-      const prose = [block.whatThisIs, ...block.howToUse].join(' ');
-      // No em dashes, no smart quotes, nothing that survives a copy and paste
-      // badly.
-      expect(prose).toMatch(/^[\x20-\x7E]*$/);
-      expect(prose).not.toMatch(/https?:\/\//);
-      // Trimming is about size. Describing it as scrubbing, cleaning, or making
-      // anything safe would be a claim this extension does not make.
-      expect(prose).not.toMatch(/\bscrub|\bclean|\bsafe|\bsanitiz|\bredact/i);
+  it('keeps the prose plain in every domain: ASCII, no links, never safe, never current', () => {
+    // Per domain, deliberately: this loop once ran against flow meta only, so
+    // it had never actually read the list prose, and it would have shipped a
+    // record sentence carrying an em dash or the word "safe" without noticing.
+    for (const domain of CONTEXT_DOMAINS) {
+      for (let bits = 0; bits < 2 ** MODIFICATIONS.length; bits += 1) {
+        const block = buildAiContext({
+          ...DOMAIN_META[domain],
+          modifications: Object.fromEntries(
+            MODIFICATIONS.map((m, i) => [m.flag, Boolean(bits & (1 << i))]),
+          ),
+        });
+        const prose = [block.whatThisIs, ...block.howToUse].join(' ');
+        const label = `${domain}/${bits}`;
+        // No em dashes, no smart quotes, nothing that survives a copy and
+        // paste badly.
+        expect(prose, label).toMatch(/^[\x20-\x7E]*$/);
+        expect(prose, label).not.toMatch(/https?:\/\//);
+        // Trimming is about size. Describing it as scrubbing, cleaning, or
+        // making anything safe would be a claim this extension does not make;
+        // neither is currency, so "current" never appears, least of all next
+        // to a record's values.
+        expect(prose, label).not.toMatch(/\bscrub|\bclean|\bsafe|\bsanitiz|\bredact/i);
+        expect(prose, label).not.toMatch(/\bcurrent\b/i);
+      }
     }
   });
 });

@@ -55,6 +55,50 @@ export const DEFAULT_PATTERNS = {
   // classifies by URL alone. Capturing it would risk keeping real record
   // rows; and it carries names only, no definitions, so the popup's Fetch
   // missing action covers the need with the definition endpoint instead.
+
+  // GET /api/inbounddb-objects/v1/crm-objects/{objectTypeId}/batch?...&id={objectId}
+  // The whole CRM record: identity, every property with its provenance
+  // envelope, object state, permissions. One endpoint for every object type,
+  // confirmed live on 0-1, 0-2, 0-3 and a portal-defined 2-N custom object
+  // with a byte-identical response envelope. The type is the only id in the
+  // path, and it is hyphenated: every other pattern in this file assumes
+  // plain digits, this one must not.
+  //
+  // End-anchored like the list pattern, and for a sharper reason here: a
+  // singular sibling exists, GET /crm-objects/{objectTypeId}/{objectId}
+  // (observed with flpViewValidation=true on an engagement record page), and
+  // an unanchored pattern would classify it too. The batch call accompanied
+  // it on every page tested, so excluding the singular costs nothing and
+  // prevents two subject patterns for one record.
+  //
+  // The objectId lives in the query, not the path; classifyUrl pulls it from
+  // there and refuses anything but exactly one id (see below).
+  record: /\/api\/inbounddb-objects\/v1\/crm-objects\/(\d+-\d+)\/batch$/,
+
+  // Known and deliberately NOT captured on record pages, each for its own
+  // reason:
+  //
+  //   /api/contacts/v1/contact/vids/batch, /api/companies/v2/companies/batch
+  //     The legacy per-type family: one endpoint per legacy object type, none
+  //     for custom objects, each with a different response shape. Strictly
+  //     less coverage than the generic endpoint for N times the patterns.
+  //   /api/timeline/v2/object/... (two query shapes) and
+  //   /api/crm/events/v3/timeline/...
+  //     Three response shapes for one dataset, paginated (silently partial
+  //     when hasHiddenEvents is true), refires on scroll, and they embed full
+  //     property blobs for OTHER records (engagements, sibling objects),
+  //     which would pull other records' data into a file named for this one.
+  //   /api/calls/v1/callees/omnibus/{objectTypeId}/{objectId}
+  //     Fires at load on every record page tested, but lists callable
+  //     associations only (a company's contacts, not its deal) and carries
+  //     associated people's names and email addresses.
+  //   /api/sales-views/v1/associated-open-objects/{WORD}/{id}/{WORD}
+  //     Keyed by legacy words (CONTACT, COMPANY), so a custom object's 2-N
+  //     has no path to a URL at all; returns open objects only.
+  //   /api/chirp-frontend-app/.../AssociatedObjectsGatewayRpc/getAssociatedObjectsPaged
+  //     The association cards' own source, one POST per card. Classifiable by
+  //     URL (the RPC method is in the path), but it belongs to the associated
+  //     records feature, which is its own slice with its own opt in.
 };
 
 /**
@@ -70,7 +114,7 @@ export const DEFAULT_PATTERNS = {
  * @param {string} [method] HTTP method, for endpoints where the path alone
  *   cannot tell a load from a save. Defaults to GET, which is what the
  *   flow patterns assume and what an XHR without a recorded method was.
- * @returns {{role: string, kind: string, domain: string, flowId: string|null, listId: string|null, sidecarKind: string|null, url: string}|null}
+ * @returns {{role: string, kind: string, domain: string, flowId: string|null, listId: string|null, objectTypeId: string|null, objectId: string|null, sidecarKind: string|null, url: string}|null}
  */
 export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 'GET') {
   if (typeof rawUrl !== 'string' || rawUrl.length === 0) return null;
@@ -93,6 +137,8 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
       domain: CAPTURE_DOMAIN.FLOW,
       flowId: null,
       listId: null,
+      objectTypeId: null,
+      objectId: null,
       sidecarKind: null,
       url: parsed.href,
     };
@@ -106,6 +152,38 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
       domain: CAPTURE_DOMAIN.FLOW,
       flowId: load[1],
       listId: null,
+      objectTypeId: null,
+      objectId: null,
+      sidecarKind: null,
+      url: parsed.href,
+    };
+  }
+
+  const record = patterns.record ? path.match(patterns.record) : null;
+  if (record) {
+    // GET only, unlike the list pattern. A write through this path has never
+    // been observed, and there is no reason to think one would answer with a
+    // full record envelope, so accepting a POST here risks storing a mutation
+    // acknowledgment as the record. One line to relax if a write is ever seen.
+    const verb = typeof method === 'string' ? method.toUpperCase() : 'GET';
+    if (verb !== 'GET') return null;
+
+    // The objectId rides in the query. Exactly one, or nothing is captured:
+    // "batch" implies the id param can repeat, and a multi-record body has no
+    // honest answer to "which record is this?". Refusing here is the
+    // fail-closed rule expressed where all URL knowledge already lives, with
+    // no body parse anywhere near the capture path.
+    const ids = parsed.searchParams.getAll('id');
+    if (ids.length !== 1 || !/^\d+$/.test(ids[0])) return null;
+
+    return {
+      role: 'subject',
+      kind: CAPTURE_KIND.LOAD,
+      domain: CAPTURE_DOMAIN.RECORD,
+      flowId: null,
+      listId: null,
+      objectTypeId: record[1],
+      objectId: ids[0],
       sidecarKind: null,
       url: parsed.href,
     };
@@ -125,6 +203,8 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
       domain: CAPTURE_DOMAIN.LIST,
       flowId: null,
       listId: list[1],
+      objectTypeId: null,
+      objectId: null,
       sidecarKind: null,
       url: parsed.href,
     };
@@ -136,6 +216,8 @@ export function classifyUrl(rawUrl, base, patterns = DEFAULT_PATTERNS, method = 
     domain: CAPTURE_DOMAIN.LIST,
     flowId: null,
     listId,
+    objectTypeId: null,
+    objectId: null,
     sidecarKind,
     url: parsed.href,
   });
@@ -179,12 +261,21 @@ export function inbounddbListUrl(origin, listId, portalId, { clientTimeoutMs = 1
   return url.href;
 }
 
+// There is deliberately no crmObjectsBatchUrl builder. hybridUrl and
+// inbounddbListUrl omit only the two hs_static_app telemetry params; the batch
+// endpoint's other query params (allPropertiesFetchMode, includeAllProperties,
+// includeCurrentUserPermissions, includeObjectVersion, flpViewValidation) are
+// shape-bearing, not telemetry, and the same page has been observed calling
+// the endpoint twice with different sets. A guessed set could make Refresh
+// silently return fewer properties than the passive capture, so a record
+// refetch reuses the exact URL the page used, or reports that it cannot.
+
 /**
  * Pull identifiers out of the page URL.
  *
  * Used for three things: the SPA staleness guard (does the snapshot still
- * belong to the flow or segment on screen?), the ids for a refetch, and
- * telling which HubSpot app the page belongs to at all.
+ * belong to the flow, segment, or record on screen?), the ids for a refetch,
+ * and telling which HubSpot app the page belongs to at all.
  *
  * Flow shapes:
  *   /workflows/{portalId}/platform/flow/{flowId}/edit
@@ -193,6 +284,25 @@ export function inbounddbListUrl(origin, listId, portalId, { clientTimeoutMs = 1
  * Segment (list) shapes:
  *   /contacts/{portalId}/objectLists/{listId}            (+ /filters etc.)
  *   /contacts/{portalId}/lists/{legacyListId}            (legacy)
+ *
+ * Record shape (confirmed live on 0-1, 0-2, 0-3 and a 2-N custom object; the
+ * objectTypeId is hyphenated, and HubSpot emits this shape in its own
+ * payloads as relativeUri):
+ *   /contacts/{portalId}/record/{objectTypeId}/{objectId}
+ *
+ * The record pair comes back both-or-neither: a partial pair is no pair. That
+ * is the fail-closed rule expressed in the parser, and it is the deliberate
+ * opposite of the flow guard's fail-open. Flows fail open because a missing
+ * id only ever hides a valid capture; records fail closed because the same
+ * document outlives the record it belongs to (HubSpot SPA-navigates between
+ * records, measured: two different records' batch responses arrived in one
+ * document lifetime), so an unguarded snapshot would be offered on the wrong
+ * record's page.
+ *
+ * A second regex over this grammar lives in
+ * packages/overlay/src/record-surfaces.js (PATH_OBJECT_TYPE). It reads only
+ * the type, serves the DOM overlay, and cannot be merged here without a new
+ * bundle entry; if the grammar ever changes, change both.
  *
  * The legacy ids are not the flow or ILS list ids (different id spaces), so
  * they are returned separately rather than being passed off as one. On URL
@@ -219,6 +329,8 @@ export function idsFromPageUrl(href) {
     legacyId: null,
     listId: null,
     legacyListId: null,
+    objectTypeId: null,
+    objectId: null,
   };
 
   let path;
@@ -244,6 +356,18 @@ export function idsFromPageUrl(href) {
     const legacy = path.match(/\/workflows\/\d+\/(?:edit|view)\/(\d+)(?:\/|$)/);
     if (legacy) out.legacyId = legacy[1];
     return out;
+  }
+
+  // Both or neither: one capture group failing fails the match, so a
+  // truncated record URL yields no pair and the record guards cannot fire,
+  // which on this domain means no capture rather than a guess.
+  if (out.app === 'contacts') {
+    const record = path.match(/\/contacts\/\d+\/record\/(\d+-\d+)\/(\d+)(?:\/|$)/);
+    if (record) {
+      out.objectTypeId = record[1];
+      out.objectId = record[2];
+      return out;
+    }
   }
 
   const list = path.match(/\/objectLists\/(\d+)(?:\/|$)/);

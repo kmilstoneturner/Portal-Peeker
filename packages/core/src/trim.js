@@ -23,6 +23,7 @@
 
 import { summarize, findFlow } from './summary.js';
 import { stripHtml, looksLikeHtml } from './strip-html.js';
+import { deepEqual, ledger, dropIf, byteLength, refusal } from './trim-kit.js';
 
 // Bytes per token. A rough constant, deliberately one number rather than a
 // per-field model: the figure exists to tell someone whether a payload will fit
@@ -76,63 +77,10 @@ export const PROFILES = {
   diff: { keepProvenance: false },
 };
 
-// ---------------------------------------------------------------- helpers
-
-/**
- * Order-insensitive deep equality.
- *
- * Key order matters here: the server reorders arrays and object keys with no
- * semantic meaning, and two responses with identical content have been observed
- * differing only in key order. A JSON.stringify comparison would report those as
- * different and quietly stop deduplicating.
- */
-function deepEqual(a, b) {
-  if (a === b) return true;
-  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-
-  if (Array.isArray(a)) {
-    if (a.length !== b.length) return false;
-    return a.every((item, index) => deepEqual(item, b[index]));
-  }
-
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => Object.hasOwn(b, key) && deepEqual(a[key], b[key]));
-}
-
-const weigh = (key, value) => {
-  try {
-    return JSON.stringify(value ?? null).length + String(key).length + 3;
-  } catch {
-    return 0;
-  }
-};
-
-/** Records what each rule removed. This is the schema-drift alarm. */
-function ledger() {
-  const rules = new Map();
-  return {
-    hit(id, key, value) {
-      const entry = rules.get(id) || { id, count: 0, bytes: 0 };
-      entry.count += 1;
-      entry.bytes += weigh(key, value);
-      rules.set(id, entry);
-    },
-    list: () => [...rules.values()].sort((a, b) => b.bytes - a.bytes),
-  };
-}
-
-/** delete obj[key], recording it, only when `when` holds. */
-function dropIf(log, id, obj, key, when = true) {
-  if (!obj || !Object.hasOwn(obj, key) || !when) return false;
-  log.hit(id, key, obj[key]);
-  delete obj[key];
-  return true;
-}
-
 // ---------------------------------------------------------------- rules
+//
+// deepEqual, ledger, dropIf, byteLength, and the refusal shape live in
+// trim-kit.js, shared with record-trim.js.
 
 function reduceProvenance(log, flow, profile) {
   // updateMetadata keeps its timestamp: "last saved four minutes ago" is real
@@ -386,22 +334,17 @@ function pruneFlow(log, flow) {
 export function trim(rawText, options = {}) {
   const profile = PROFILES[options.profile] || PROFILES.reading;
   const inputBytes = typeof rawText === 'string' ? byteLength(rawText) : 0;
-  const refuse = (reason) => ({
-    ok: false,
-    output: null,
-    reason,
-    inputBytes,
-    outputBytes: inputBytes,
-    rules: [],
-  });
+  const refuse = (reason) => refusal(inputBytes, reason);
 
   const summary = summarize(rawText);
-  if (summary.domain === 'list') {
+  if (summary.domain === 'list' || summary.domain === 'record') {
     // Every rule in this file is about workflow structure. A segment capture
-    // is already mostly filter logic, so there is nothing here to trim it to,
-    // and pretending otherwise would mean shipping untested rules against a
-    // different schema.
-    return refuse('trimming applies to workflow captures only');
+    // is already mostly filter logic, so there is nothing here to trim it to;
+    // a record capture has its own trim in record-trim.js. Refusing records
+    // here by name matters: without this arm, a recognized record would fall
+    // through to the flow-at-root check below and refuse with a reason that
+    // is true only by accident.
+    return refuse('trimming to workflow logic applies to workflow captures only');
   }
   if (!summary.recognized) {
     // No partial trims. A half-trimmed payload looks complete while missing
@@ -447,13 +390,5 @@ export function trim(rawText, options = {}) {
     };
   } catch (error) {
     return refuse(`trim failed: ${String(error && error.message ? error.message : error)}`);
-  }
-}
-
-function byteLength(text) {
-  try {
-    return new TextEncoder().encode(text).length;
-  } catch {
-    return text.length;
   }
 }

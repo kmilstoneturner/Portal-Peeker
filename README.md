@@ -1,8 +1,8 @@
 # Portal Peeker
 
 A Chrome extension for HubSpot admins. It captures the JSON behind a HubSpot workflow as
-you open and save it, and the JSON behind a segment (list) as you open one, and lets you
-copy or download those exact bytes.
+you open and save it, the JSON behind a segment (list) as you open one, and the JSON
+behind a CRM record as you open its page, and lets you copy or download those exact bytes.
 
 <img width="341" height="477" alt="Portal-Peeker" src="https://github.com/user-attachments/assets/c4078b7a-35a7-4c7d-8d8b-8e30d48e0dde" />
 <img width="1280" height="800" alt="API Names" src="https://github.com/user-attachments/assets/4deb2892-23ed-4b67-b631-9c72cd14ce81" />
@@ -10,8 +10,8 @@ copy or download those exact bytes.
 
 **The extension talks to no host but HubSpot.** No telemetry, no analytics, no error
 reporting, no third party of any kind. The only requests it ever makes are Refresh and
-Fetch refetching the workflow or segment from HubSpot's own API, on a click, and nothing
-else it does leaves your machine. `host_permissions` is `*://*.hubspot.com/*` and nothing
+Fetch refetching the workflow, segment, or record from HubSpot's own API, on a click, and
+nothing else it does leaves your machine. `host_permissions` is `*://*.hubspot.com/*` and nothing
 else, which you can verify yourself in `chrome://extensions`. CI fails the build on any
 absolute URL to a non-HubSpot host in the bundle.
 
@@ -139,11 +139,12 @@ What carries over and what does not, honestly:
   workflow, and explains the `filterBranch` tree instead of `actionId`.
 - **Trim, HTML strip, and editor numbers are workflow features**, so the options box swaps
   by capture type: a segment shows only the options that can apply to it (the referenced
-  lists bundle and the AI context block), and a workflow shows the original four. Every
-  rule in the trimmer is about workflow structure; running untested rules against a
-  different schema would be exactly the kind of guessing this project refuses to do. A
-  segment payload is small and mostly filter logic anyway. Hidden options keep their
-  stored state, so viewing a segment never costs a workflow preference.
+  lists bundle and the AI context block), a record shows its own pair (the property values
+  trim and the AI context block), and a workflow shows the original four. Every rule in
+  the trimmer is about workflow structure; running untested rules against a different
+  schema would be exactly the kind of guessing this project refuses to do. A segment
+  payload is small and mostly filter logic anyway. Hidden options keep their stored state,
+  so viewing a segment or a record never costs a workflow preference.
 
 The same discipline applies across pages: a list definition fetched by the workflow editor
 (goal and suppression lists) or by another list's page never takes the snapshot; the page
@@ -183,6 +184,83 @@ closes the gap directly: one user-initiated GET per missing list, through the sa
 definition endpoint every other capture uses, and each verbatim body joins the bundle
 under `_related.fetchedLists`. Refresh renews only the segment itself; the sidecar bodies
 stay as they were captured.
+
+### Record capture
+
+Open any CRM record page, `/contacts/{portalId}/record/{objectTypeId}/{objectId}`, and
+Portal Peeker captures the response of
+`GET /api/inbounddb-objects/v1/crm-objects/{objectTypeId}/batch`: the whole record as the
+page itself loads it, every property wrapped in its provenance envelope, plus object
+state, references, and permissions. One endpoint serves every object type: contacts,
+companies, deals, tickets, the engagement types with record pages of their own (tasks,
+meetings, calls, emails), and portal-defined custom objects, all confirmed live with an
+identical envelope.
+
+The popup shows the object type id, the record id, the portal id, a property count, and
+the capture time. Identifiers only, deliberately: the popup never renders a property
+value, a person's name included. A resolved display name (from a small per-type property
+table, falling back to the record's `secondaryIdentifier`, then to nothing) appears in
+exactly two places, both of which exist because you exported: the download filename, as a
+trailing slug after the ids, and the AI context block inside the file.
+
+Copy and Download work exactly as everywhere else: byte-identical with everything off, and
+the file is named `YYYY-MM-DD-record-{objectTypeId}-{objectId}[-name].json`. The AI
+context block names the record, explains the properties map, and says plainly that the
+file holds real record data.
+
+Two deliberate differences from the other domains:
+
+- **The staleness guard fails closed.** HubSpot navigates between records without a page
+  load, and the batch call re-fires in the same document (measured live), so a snapshot
+  genuinely outlives the record it belongs to. No record pair in the page URL means no
+  capture on offer, and the captured pair must match the page's, or the popup shows the
+  empty state rather than another record's JSON. Workflows fail open here because for them
+  a missing id only ever hides a valid capture.
+- **Refresh repeats, never constructs.** The batch endpoint's query params are
+  shape-bearing (they decide which properties come back), so Refresh re-issues the exact
+  URL the page used, byte for byte. With nothing captured there is nothing to repeat: the
+  empty state says to reload the page instead of offering a Fetch button that would have
+  to guess.
+
+Everything else a record page loads (timelines, association cards, the calling widget) is
+deliberately not captured; each carries other records' data, and the reasons are recorded
+endpoint by endpoint in `packages/capture/src/endpoints.js`.
+
+### Only export property values
+
+A record capture is mostly not values. Every property arrives wrapped in a provenance
+envelope: a `versions` entry duplicating the value, plus ten fields saying how and when it
+was written. Measured live, that wrapping is around 87 percent of the payload. Tick **Only
+export property values** and Copy and Download collapse each property to its bare value,
+keyed by the property name:
+
+```json
+"properties": { "dealname": "HubSpot - New Deal", "hs_is_open_count": "1" }
+```
+
+The `currentUserPermissions` block goes too: it describes what the exporting user may do
+to the record, which is session data, not record data. The rest of the envelope (identity,
+object state, references) stays.
+
+The governing property is a mapped variant of the workflow trim's, tested the same way:
+**values are never altered**. Every property name in the capture appears in the output
+carrying exactly the captured value, every leaf outside the properties map survives at the
+same path, and an unrecognized envelope withdraws the checkbox whole rather than shipping
+a partial file. Safe because every observed value is a JSON string (numbers, booleans, and
+timestamps arrive as strings; composites as JSON-encoded strings), so the collapse loses
+nothing. A property whose entry does not reduce to exactly `{value}` holding a scalar
+keeps its original wrapped entry, visibly, instead of being guessed at.
+
+Three rules are worth stating because the property test alone would not catch their
+violation. The walk is exactly two levels deep, so the words `timestamp` and `source` are
+only ever dropped inside a property, never from `objectStates` or `archivalHistory`, where
+they are the entire content. Null or empty values are never pruned: "this field is
+explicitly empty" is a fact, and the name stays, carrying `null` or `""`. And the collapse
+is the one structural change in either trim, which is why it fires only on the exact shape
+observed and declines everything else.
+
+Files carry a `-values` suffix. Like the workflow trim it is a size feature, not
+redaction: the values it keeps are exactly the sensitive part.
 
 ## Trimming
 
@@ -269,16 +347,18 @@ so in its name:
 | nothing | none |
 | editor numbers | `-numbered` |
 | referenced lists (segments) | `-related` |
+| property values (records) | `-values` |
 | AI context | `-ai` |
 | trim | `-trimmed` |
 | trim, HTML strip | `-trimmed-stripped` |
 | everything, on a workflow | `-trimmed-stripped-numbered-ai` |
 | everything, on a segment | `-related-ai` |
+| everything, on a record | `-values-ai` |
 
-The additive options are **insertions, not rewrites**. Only trimming and HTML stripping
-change what is already in the file, and they are the only two that need one another. So the
-sharper version of the guarantee is: **without a trim, nothing the extension does removes or
-alters a single byte HubSpot sent.** It can only add, and every addition is removable.
+The additive options are **insertions, not rewrites**. Only the two trims and HTML
+stripping change what is already in the file. So the sharper version of the guarantee is:
+**without a trim, nothing the extension does removes or alters a single byte HubSpot
+sent.** It can only add, and every addition is removable.
 
 The extension writes exactly three keys into the JSON itself, `uiNumber`, `_related`, and
 `_aiContext`, each behind its own checkbox and its own suffix. Nothing else it does is
@@ -294,9 +374,11 @@ failure this is built to make impossible.
 
 ### It is not scrubbing
 
-Trimming is about size. It is not a privacy feature and the UI never calls it "clean" or
-"safe". It happens to drop the editor referrer URL and reduce the provenance envelope, but
-the free-text fields it keeps are exactly where anything sensitive would be.
+Trimming is about size, and that holds for both trims. Neither is a privacy feature and
+the UI never calls either "clean" or "safe". The workflow trim happens to drop the editor
+referrer URL and reduce the provenance envelope, but the free-text fields it keeps are
+exactly where anything sensitive would be; the record trim keeps every property value,
+which **is** the personal data.
 
 ### It does not solve large workflows
 
@@ -452,10 +534,29 @@ pointing at documents.
 - No dirty detection. The popup shows a capture timestamp and a Refresh button and claims
   nothing about currency. The only candidate signal (`allOutputs`) has untested coverage,
   and a dirty flag with holes is worse than none.
-- Refresh returns **saved** state. Unsaved edits are not in it, and the popup says so.
+- Refresh returns **saved** state. Unsaved edits are not in it, and the popup says so. On a
+  record, Refresh additionally needs a capture to repeat: the batch endpoint's query
+  params are shape-bearing, so the extension never constructs that URL, and with nothing
+  captured the popup asks for a reload instead.
 - The SPA staleness guard compares the snapshot's flow ID against the flow ID in the page
   URL on every read, so navigating to another workflow shows an empty state rather than the
-  previous flow's JSON. On URL shapes where no flow ID can be parsed, the guard cannot fire.
+  previous flow's JSON. On URL shapes where no flow ID can be parsed, the guard cannot
+  fire. Records run the same guard the other way around: it fails closed, and a page URL
+  with no record pair means no capture at all, because record-to-record navigation in one
+  document is measured behaviour rather than a possibility.
+- Key order inside HubSpot's own responses is unstable (the same object has been observed
+  in three key orders across sibling endpoints, once with a literal duplicate key), so
+  byte-diffing two captures of an unchanged record is meaningless and is not offered.
+  Exports are still byte-faithful to the response each one captured.
+- The record capture keeps exactly one response per record page: the `crm-objects` batch.
+  Timelines, association cards, and the calling widget's data are deliberately out, with
+  the reasons recorded per endpoint in `packages/capture/src/endpoints.js`.
+- Reaching a record through its preview panel and then View record can land on the empty
+  state (observed live): HubSpot fetched the record while the page URL still named the
+  one behind the panel, that body was refused rather than guessed at, and the navigation
+  itself refetched nothing. One reload captures it, and the empty state says so. The
+  refusal is the fail-closed guard doing its job; a possible later refinement is holding
+  the refused body aside and promoting it only when the URL comes to match its exact pair.
 - Platform (non-classic) flow envelopes have never been captured. `summarize` flags
   `isClassicWorkflow: false` as unrecognized. Capture itself is unaffected: it is parser
   free, and Copy and Download work on the raw bytes regardless.

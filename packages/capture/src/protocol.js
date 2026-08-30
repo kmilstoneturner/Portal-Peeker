@@ -60,13 +60,15 @@ export const CAPTURE_KIND = {
   REFRESH: 'refresh',
 };
 
-// What a snapshot is of. A workflow and a segment (list) travel the same wire
-// and share the same popup, but they summarize differently, export under
-// different names, and answer to different ids, so the distinction rides with
-// the capture rather than being re-guessed downstream.
+// What a snapshot is of. A workflow, a segment (list), and a CRM record travel
+// the same wire and share the same popup, but they summarize differently,
+// export under different names, and answer to different ids (a record answers
+// to a pair, objectTypeId plus objectId, rather than one), so the distinction
+// rides with the capture rather than being re-guessed downstream.
 export const CAPTURE_DOMAIN = {
   FLOW: 'flow',
   LIST: 'list',
+  RECORD: 'record',
 };
 
 // Refresh failures the popup gives distinct copy for. An unreadable csrf.app
@@ -74,6 +76,12 @@ export const CAPTURE_DOMAIN = {
 // saves the user a support round trip.
 export const REFRESH_ERROR = {
   NO_ID: 'no-id',
+  // Records only: Refresh repeats the exact URL the page used and never
+  // constructs one (the batch endpoint's query params are shape-bearing, and a
+  // guessed set could silently return fewer properties than the capture). No
+  // snapshot means no URL to repeat, which is a different failure from "no id"
+  // with a different remedy: reload the page rather than open a record.
+  NO_CAPTURED_URL: 'no-captured-url',
   CSRF_UNREADABLE: 'csrf-unreadable',
   NETWORK: 'network',
   HTTP: 'http',

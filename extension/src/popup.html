@@ -56,7 +56,7 @@
 
         <div class="page" id="page-home" role="tabpanel" aria-labelledby="nav-home">
           <section id="empty" class="empty" hidden>
-            <p class="empty-title">Open a HubSpot workflow or segment to capture it.</p>
+            <p class="empty-title">Open a HubSpot workflow, segment, or record to capture it.</p>
             <p class="empty-hint" id="empty-hint">
               Already on one? Reload the page. Portal Peeker only sees requests made after it loads.
             </p>
@@ -109,7 +109,7 @@
             <p class="note" id="degraded" hidden></p>
 
             <!--
-              These four are export options. Their ids carry the opt- prefix,
+              These six are export options. Their ids carry the opt- prefix,
               which tools/check-ai-context.mjs counts against the MODIFICATIONS
               table in packages/core/src/ai-context.js. A checkbox added here
               that does not change an export must NOT use that prefix: settings
@@ -168,6 +168,29 @@
                 export as one _related key, next to the segment. Every embedded
                 body is byte-for-byte as HubSpot sent it, and deleting that one
                 key restores the export without it, exactly.
+              </p>
+              <label class="check" for="opt-values">
+                <input type="checkbox" id="opt-values" />
+                <span id="opt-values-label">Only export property values</span>
+                <button
+                  type="button"
+                  class="info"
+                  id="values-info"
+                  aria-expanded="false"
+                  aria-controls="values-tip"
+                  aria-label="About property values"
+                >
+                  i
+                </button>
+              </label>
+              <p class="tip" id="values-tip" hidden>
+                HubSpot wraps every property in metadata: change history
+                (versions), what wrote it (source, sourceId, requestId), write
+                timestamps, and sensitivity flags. This option exports each
+                property as just its value, keyed by the property name, with
+                that metadata and your own permissions block left out. The
+                record's identity and state stay. Values are never altered:
+                every value in the file is exactly what HubSpot sent.
               </p>
               <label class="check" for="opt-context">
                 <input type="checkbox" id="opt-context" checked />

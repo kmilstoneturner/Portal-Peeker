@@ -104,6 +104,10 @@ const COPIES = [
   [`${OVERLAY}/overlay.css`, 'overlay/overlay.css'],
   [`${CORE}/summary.js`, 'lib/summary.js'],
   [`${CORE}/trim.js`, 'lib/trim.js'],
+  // trim.js and record-trim.js both import the kit, so it rides along the same
+  // way. All three are popup-side only: the capture bundles stay parser free.
+  [`${CORE}/trim-kit.js`, 'lib/trim-kit.js'],
+  [`${CORE}/record-trim.js`, 'lib/record-trim.js'],
   [`${CORE}/strip-html.js`, 'lib/strip-html.js'],
   [`${CORE}/json-span.js`, 'lib/json-span.js'],
   [`${CORE}/ui-numbers.js`, 'lib/ui-numbers.js'],

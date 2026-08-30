@@ -3,6 +3,7 @@ import { classifyUrl, hybridUrl, inbounddbListUrl, idsFromPageUrl } from '../src
 
 const PAGE = 'https://app.hubspot.com/workflows/12345678/platform/flow/1000000001/edit';
 const LIST_PAGE = 'https://app.hubspot.com/contacts/12345678/objectLists/4242/filters';
+const RECORD_PAGE = 'https://app.hubspot.com/contacts/12345678/record/0-1/9101';
 
 describe('classifyUrl: workflows', () => {
   it('matches the editor-load GET and pulls the flow ID from the path', () => {
@@ -134,6 +135,85 @@ describe('classifyUrl: segments (lists)', () => {
   });
 });
 
+describe('classifyUrl: records', () => {
+  // The request every record page makes, observed August 2026 across 0-1,
+  // 0-2, 0-3, 0-27, and a portal-defined custom object, param set identical.
+  const BATCH =
+    '/api/inbounddb-objects/v1/crm-objects/0-1/batch?portalId=12345678&allPropertiesFetchMode=latest_version&includeAllProperties=true&includeAllValues=true&includeCurrentUserPermissions=true&includeObjectVersion=true&flpViewValidation=false&id=9101';
+
+  it('matches the batch GET, type from the path and id from the query', () => {
+    const hit = classifyUrl(BATCH, RECORD_PAGE);
+    expect(hit.role).toBe('subject');
+    expect(hit.kind).toBe('load');
+    expect(hit.domain).toBe('record');
+    expect(hit.objectTypeId).toBe('0-1');
+    expect(hit.objectId).toBe('9101');
+    expect(hit.flowId).toBeNull();
+    expect(hit.listId).toBeNull();
+  });
+
+  it('matches a portal-defined custom object type the same way', () => {
+    const hit = classifyUrl(
+      '/api/inbounddb-objects/v1/crm-objects/2-7701/batch?portalId=12345678&id=9303',
+      RECORD_PAGE,
+    );
+    expect(hit.domain).toBe('record');
+    expect(hit.objectTypeId).toBe('2-7701');
+    expect(hit.objectId).toBe('9303');
+  });
+
+  it('captures only GETs on this path', () => {
+    // Unlike the list pattern, where a write answers with the updated
+    // definition. No write has been observed here, and a mutation
+    // acknowledgment stored as the record would be a wrong capture.
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']) {
+      expect(classifyUrl(BATCH, RECORD_PAGE, undefined, method), method).toBeNull();
+    }
+    expect(classifyUrl(BATCH, RECORD_PAGE, undefined, 'get').domain).toBe('record');
+  });
+
+  it('refuses anything but exactly one numeric id in the query', () => {
+    for (const url of [
+      // batch implies the param can repeat; a multi-record body has no honest
+      // answer to "which record is this?"
+      '/api/inbounddb-objects/v1/crm-objects/0-1/batch?id=9101&id=9303',
+      '/api/inbounddb-objects/v1/crm-objects/0-1/batch?portalId=12345678',
+      '/api/inbounddb-objects/v1/crm-objects/0-1/batch?id=',
+      '/api/inbounddb-objects/v1/crm-objects/0-1/batch?id=9101x',
+    ]) {
+      expect(classifyUrl(url, RECORD_PAGE), url).toBeNull();
+    }
+  });
+
+  it('excludes the singular sibling and every other shape on the service', () => {
+    for (const url of [
+      // GET /crm-objects/{type}/{id}, observed with flpViewValidation=true on
+      // an engagement page. The end anchor exists to keep it out: the batch
+      // call accompanied it on every page tested.
+      '/api/inbounddb-objects/v1/crm-objects/0-27/9505?flpViewValidation=true',
+      '/api/inbounddb-objects/v1/crm-objects/0-1/batch/extra?id=9101',
+      // an unhyphenated path segment is not an objectTypeId
+      '/api/inbounddb-objects/v1/crm-objects/12345678/batch?id=9101',
+    ]) {
+      expect(classifyUrl(url, RECORD_PAGE), url).toBeNull();
+    }
+  });
+
+  it('ignores the record-page traffic that is deliberately not captured', () => {
+    for (const url of [
+      '/api/contacts/v1/contact/vids/batch?portalId=12345678',
+      '/api/companies/v2/companies/batch?portalId=12345678',
+      '/api/timeline/v2/object/0-1/9101?limit=20',
+      '/api/crm/events/v3/timeline/0-1/9101?portalId=12345678',
+      '/api/calls/v1/callees/omnibus/0-1/9101',
+      '/api/sales-views/v1/associated-open-objects/CONTACT/9101/DEAL',
+      '/api/chirp-frontend-app/v1/gateway/com.hubspot.card.associated.objects.rpc.AssociatedObjectsGatewayRpc/getAssociatedObjectsPaged',
+    ]) {
+      expect(classifyUrl(url, RECORD_PAGE), url).toBeNull();
+    }
+  });
+});
+
 describe('hybridUrl', () => {
   const url = new URL(hybridUrl('https://app.hubspot.com', '1000000001', '12345678'));
 
@@ -184,6 +264,8 @@ describe('idsFromPageUrl: workflows', () => {
       legacyId: null,
       listId: null,
       legacyListId: null,
+      objectTypeId: null,
+      objectId: null,
     });
   });
 
@@ -208,6 +290,8 @@ describe('idsFromPageUrl: workflows', () => {
       legacyId: null,
       listId: null,
       legacyListId: null,
+      objectTypeId: null,
+      objectId: null,
     });
   });
 });
@@ -270,5 +354,60 @@ describe('idsFromPageUrl: segments (lists)', () => {
     expect(ids.app).toBe('contacts');
     expect(ids.listId).toBeNull();
     expect(ids.flowId).toBeNull();
+    // It reads as what it is instead.
+    expect(ids.objectTypeId).toBe('0-1');
+    expect(ids.objectId).toBe('4242');
+  });
+});
+
+describe('idsFromPageUrl: records', () => {
+  it('reads the type and id pair, with or without a trailing path', () => {
+    for (const href of [
+      RECORD_PAGE,
+      `${RECORD_PAGE}/`,
+      // SPA navigation appends query params the initial load does not carry;
+      // measured live, and the parser reads the pathname only.
+      `${RECORD_PAGE}?portalId=12345678&clienttimeout=14000`,
+    ]) {
+      const ids = idsFromPageUrl(href);
+      expect(ids.app, href).toBe('contacts');
+      expect(ids.portalId, href).toBe('12345678');
+      expect(ids.objectTypeId, href).toBe('0-1');
+      expect(ids.objectId, href).toBe('9101');
+      expect(ids.listId, href).toBeNull();
+    }
+  });
+
+  it('reads a custom object type the same way', () => {
+    const ids = idsFromPageUrl('https://app.hubspot.com/contacts/12345678/record/2-7701/9303');
+    expect(ids.objectTypeId).toBe('2-7701');
+    expect(ids.objectId).toBe('9303');
+  });
+
+  it('returns the pair both-or-neither', () => {
+    // A truncated record URL yields no pair at all, never half of one: the
+    // record guards fail closed, and a partial pair would let a comparison
+    // half-fire.
+    for (const href of [
+      'https://app.hubspot.com/contacts/12345678/record/0-1',
+      'https://app.hubspot.com/contacts/12345678/record',
+      'https://app.hubspot.com/contacts/12345678/record/01/9101',
+    ]) {
+      const ids = idsFromPageUrl(href);
+      expect(ids.objectTypeId, href).toBeNull();
+      expect(ids.objectId, href).toBeNull();
+    }
+  });
+
+  it('reads no pair from index, board, or workflow pages', () => {
+    for (const href of [
+      'https://app.hubspot.com/contacts/12345678/objects/0-1/views/all/list',
+      'https://app.hubspot.com/contacts/12345678/objectLists/4242',
+      PAGE,
+    ]) {
+      const ids = idsFromPageUrl(href);
+      expect(ids.objectTypeId, href).toBeNull();
+      expect(ids.objectId, href).toBeNull();
+    }
   });
 });
