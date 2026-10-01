@@ -4,16 +4,22 @@ Last updated: 2026-10-01. Applies to the Portal Peeker Chrome extension, all ver
 
 ## The short version
 
-Portal Peeker ships with both of its features off. Capture stays off until you turn it on
-from a notice in the popup, and until then it reads no workflow, segment, or record.
+Portal Peeker ships with both of its features off, and each has its own switch.
 
-Once you have turned capture on, it reads the JSON that HubSpot's workflow editor, lists
-(segments) tool, and CRM record pages exchange with HubSpot's own API, holds it in the
-memory of the tab you are looking at, and shows you what is in it. If you switch on the API
-names setting, it also reads your portal's property configuration from responses HubSpot's
-own record page already fetched. It does not send any of that anywhere. There is no server,
-no account, no telemetry, and no analytics. The developer cannot see your workflows,
-segments, or records, and there is no mechanism by which they could.
+**Capture** stays off until you turn it on from a notice in the popup, and until then it
+reads no workflow, segment, or record. Once it is on, it reads the JSON that HubSpot's
+workflow editor, lists (segments) tool, and CRM record pages exchange with HubSpot's own
+API, holds it in the memory of the tab you are looking at, and shows you what is in it.
+
+**Show internal API names** is separate and does not need capture. Switched on, it shows
+each property's internal name under its label, from names HubSpot already put in the page
+and, in a few places, from your portal's property configuration in responses HubSpot's own
+record page already fetched. It captures nothing: no workflow, segment, or record is kept
+for it, and no record's values are read for it.
+
+Neither sends anything anywhere. There is no server, no account, no telemetry, and no
+analytics. The developer cannot see your workflows, segments, or records, and there is no
+mechanism by which they could.
 
 ## Nothing is captured until you turn capture on
 
@@ -40,7 +46,8 @@ popup's Settings page is the same switch. Turning it off stops capture in every 
 and discards whatever those tabs were holding.
 
 The API names annotation is a separate setting with its own switch, also off until you turn
-it on. Neither turns the other on.
+it on. Neither turns the other on, and neither needs the other: you can show API names with
+capture off, and doing so captures nothing.
 
 ## What Portal Peeker reads
 
@@ -50,7 +57,7 @@ It runs on five kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workf
 `*://*.hubspot.com/property-settings/*`, and `*://*.hubspot.com/object-builder/*`, which is
 the frame HubSpot itself draws the create record dialog in. What it does on each is
 different, and all of it depends on a setting you have turned on: the capture described
-below happens only while capture is on, and the property reading only while the API names
+below happens only while capture is on, and the API names annotation only while its own
 setting is. On the property settings page and in the create record dialog it reads only what
 is already in the page's own markup.
 
@@ -106,8 +113,8 @@ further and holds that record's actual property values: a contact's capture cont
 person's name, email address, phone number, and whatever else your portal stores about
 them. Portal Peeker treats all of it as opaque text.
 
-On CRM record pages under `*://*.hubspot.com/contacts/*`, and **only if you have switched on
-Show internal API names**, it observes one further kind of request that HubSpot itself makes:
+On CRM record pages under `*://*.hubspot.com/contacts/*` there is one further kind of request
+it watches, for the **Show internal API names** setting and for nothing else:
 
 - `GET /api/properties/v4/groups/{objectTypeId}/properties`, which the page issues while it
   loads, once for each type of object it needs. A deal record, for example, also fetches the
@@ -120,11 +127,15 @@ company or deal values, and nothing about the person whose record you are lookin
 record's values themselves are a separate capture, described under "Capturing CRM records"
 below, and this setting neither enables nor limits it.)
 
-Two things about it are worth stating precisely, because they are the reason it is acceptable
-at all. **Portal Peeker does not request it.** HubSpot's own page does, to draw the page you
-are already looking at, and the extension reads the replies. And **they are only read if you
-asked for the feature.** With the setting off, which is how it ships, the extension never asks
-for those responses and never receives them.
+Three things about it are worth stating precisely, because they are the reason it is
+acceptable at all. **Portal Peeker does not request it.** HubSpot's own page does, to draw
+the page you are already looking at. **The extension only receives it if you have switched
+the setting on.** HubSpot's page fetches that list once, early, so a script running in the
+page keeps a copy of each reply in the page's own memory, which is where the page already
+has it, in case you switch the setting on later. With the setting off, which is how it
+ships, that copy goes nowhere: the extension never asks for it and never receives it, and
+it is discarded with the tab. And **it is not capture.** It works with capture off, and with
+capture on it changes nothing about what is captured.
 
 They are used for one thing: three places on a record page display a property's label without
 its internal name anywhere in the page (the "Contact profile" card, the "Data highlights"
@@ -235,7 +246,9 @@ record data, and it is held in memory only until the tab closes.
 
 The annotation reads property names, property labels and the record's object type. It does
 not read, store, or transmit the record's values, and it makes no use of whose record it is.
-Capturing a record is a different feature with its own switch, described next.
+Capturing a record is a different feature with its own switch, described next, and the
+annotation does not need it: API names can be shown with capture off, and showing them
+captures nothing.
 
 The change is display only and it is undone the moment you untick the box or leave the page.
 Portal Peeker only ever adds elements of its own here: it does not remove, move, or alter
