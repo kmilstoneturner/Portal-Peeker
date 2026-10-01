@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SETTING,
   SETTINGS,
   STORAGE_AREA,
   STORAGE_KEYS,
@@ -96,5 +97,30 @@ describe('storageKeyFor', () => {
 
   it('returns null for an id nothing declares', () => {
     expect(storageKeyFor('notASetting')).toBeNull();
+  });
+});
+
+// The capture setting is the consent, so its default is not a preference. A
+// build that shipped it on would capture personal data from the first record
+// page anyone opened, before the notice that asks had ever been seen.
+describe('capture ships off', () => {
+  const key = storageKeyFor(SETTING.CAPTURE);
+
+  it('defaults to off', () => {
+    expect(defaultSettings()[SETTING.CAPTURE]).toBe(false);
+  });
+
+  it('keeps the storage key it shipped with', () => {
+    // Renaming it would forget every existing user's answer and put the notice
+    // back in front of them, which is survivable. It would not carry a yes
+    // across to a new key, which is the direction that matters.
+    expect(key).toBe('portal-peeker.capture');
+  });
+
+  it('is turned on by an explicit true and by nothing else', () => {
+    expect(normalizeSettings({ [key]: true })[SETTING.CAPTURE]).toBe(true);
+    for (const junk of ['true', 1, 'yes', {}, [], null]) {
+      expect(normalizeSettings({ [key]: junk })[SETTING.CAPTURE], String(junk)).toBe(false);
+    }
   });
 });

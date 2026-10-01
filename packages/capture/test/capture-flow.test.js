@@ -52,17 +52,68 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const DEFAULT_COOKIE = 'hubspotutk=x; csrf.app=csrf-token-value; other=1';
 
-function harness({ cookie = DEFAULT_COOKIE, url = EDITOR_URL } = {}) {
+// The storage key the consent gate reads. Spelled out rather than imported so
+// that renaming it in the settings table breaks a test instead of following
+// along silently: a renamed key is every existing user's consent forgotten.
+const CAPTURE_KEY = 'portal-peeker.capture';
+
+// "Storage holds nothing for the key". Its own value because undefined cannot
+// say it: an undefined option falls back to the harness default, which is on.
+const NEVER_ASKED = Symbol('never asked');
+
+/**
+ * @param {object} [options]
+ * @param {*} [options.capture] what storage holds for the capture setting.
+ *   Every test written before the consent gate existed assumes capture is on,
+ *   so that is the default; the gate's own tests start it off, absent
+ *   (NEVER_ASKED), or holding something that is not a boolean.
+ * @param {boolean} [options.storageAnswers] false leaves the storage read
+ *   hanging until releaseStorage(): the first milliseconds of a page, when
+ *   neither world knows the answer yet.
+ * @param {boolean} [options.gate] false loads the bridge with no gate script
+ *   ahead of it at all.
+ */
+function harness({
+  cookie = DEFAULT_COOKIE,
+  url = EDITOR_URL,
+  capture = true,
+  storageAnswers = true,
+  gate = true,
+} = {}) {
   const sent = [];
   let popupHandler = null;
   let deliver = null;
+  const mainListeners = [];
 
-  // ---- isolated world (bridge) ----
+  // Real postMessage reaches every listener on the window, in both worlds, and
+  // each world sees its own view of that window as event.source. Real
+  // postMessage also structured-clones; a JSON round trip is close enough here
+  // and would catch a value that cannot survive the hop.
+  const post = (data) => {
+    const cloned = JSON.parse(JSON.stringify(data));
+    deliver?.({ source: isolatedWindow, origin: ORIGIN, data: cloned });
+    for (const fn of [...mainListeners]) fn({ source: mainWindow, origin: ORIGIN, data: cloned });
+  };
+
+  // ---- chrome.storage, as much of it as the gate touches ----
+  const stored = capture === NEVER_ASKED ? {} : { [CAPTURE_KEY]: capture };
+  const storageListeners = [];
+  const storageReads = [];
+  const storageWrites = [];
+  let releaseStorage = () => {};
+  const storageReady = storageAnswers
+    ? Promise.resolve()
+    : new Promise((resolve) => {
+        releaseStorage = resolve;
+      });
+
+  // ---- isolated world (gate, then bridge) ----
   const isolatedLocation = { href: url, origin: ORIGIN };
   const isolatedWindow = {
     addEventListener(type, fn) {
       if (type === 'message') deliver = fn;
     },
+    postMessage: (data) => post(data),
   };
   const refreshCalls = [];
   let refreshImpl = async () => {
@@ -91,6 +142,26 @@ function harness({ cookie = DEFAULT_COOKIE, url = EDITOR_URL } = {}) {
           addListener: (fn) => {
             popupHandler = fn;
           },
+        },
+      },
+      storage: {
+        local: {
+          get: async (keys) => {
+            storageReads.push(keys);
+            await storageReady;
+            const out = {};
+            for (const key of keys) if (key in stored) out[key] = stored[key];
+            return out;
+          },
+          // Nothing on a capture page should ever call this. It exists so a
+          // write would be recorded rather than throw and be swallowed.
+          set: async (patch) => {
+            storageWrites.push(patch);
+          },
+        },
+        onChanged: {
+          addListener: (fn) => storageListeners.push(fn),
+          removeListener: () => {},
         },
       },
     },
@@ -122,33 +193,44 @@ function harness({ cookie = DEFAULT_COOKIE, url = EDITOR_URL } = {}) {
       nativeCalls.push(args);
       return nativeImpl(...args);
     },
-    postMessage: (data) => {
-      // Real postMessage structured-clones. JSON round trip is close enough
-      // here and would catch a value that cannot survive the hop.
-      const cloned = JSON.parse(JSON.stringify(data));
-      // In the isolated world, event.source is that world's view of the same
-      // window, so it compares equal to its own `window`.
-      deliver?.({ source: isolatedWindow, origin: ORIGIN, data: cloned });
+    addEventListener(type, fn) {
+      if (type === 'message') mainListeners.push(fn);
     },
+    postMessage: (data) => post(data),
   };
+
+  // The interceptor gives up waiting for the gate after a while. Collected
+  // rather than run on a real clock, so a test can make "a while" pass.
+  const mainTimers = [];
 
   const main = createContext({
     window: mainWindow,
     XMLHttpRequest: FakeXhr,
     URL,
     console,
+    setTimeout: (fn) => {
+      mainTimers.push(fn);
+      return mainTimers.length;
+    },
   });
 
+  // Same order as the manifest: the gate, then the bridge, in one world.
+  if (gate) runInContext(readFileSync(dist('consent/gate.js'), 'utf8'), isolated);
   runInContext(readFileSync(dist('capture/bridge.js'), 'utf8'), isolated);
   runInContext(readFileSync(dist('capture/interceptor.js'), 'utf8'), main);
 
-  const askPopup = (type, extra) =>
-    new Promise((resolve) => {
-      const returned = popupHandler({ type, ...extra }, {}, resolve);
-      if (returned !== true) {
-        // Synchronous responder already called resolve.
-      }
+  // The gate learns the answer from an asynchronous storage read, exactly as
+  // in Chrome. The two entry points every test drives the page and the popup
+  // through wait for that to land first, so a test that is not about the gate
+  // never has to think about it. Tests that are about it hold the read open.
+  const settled = flush();
+
+  const askPopup = async (type, extra) => {
+    await settled;
+    return new Promise((resolve) => {
+      popupHandler({ type, ...extra }, {}, resolve);
     });
+  };
 
   return {
     sent,
@@ -162,9 +244,24 @@ function harness({ cookie = DEFAULT_COOKIE, url = EDITOR_URL } = {}) {
     setRefresh: (fn) => {
       refreshImpl = fn;
     },
-    pageFetch: (...args) => mainWindow.fetch(...args),
+    pageFetch: async (...args) => {
+      await settled;
+      return mainWindow.fetch(...args);
+    },
     makeXhr: () => new FakeXhr(),
     mainWindow,
+    storageReads,
+    storageWrites,
+    releaseStorage: () => releaseStorage(),
+    /** The user flips the switch, in the popup or on the Settings page. */
+    setCapture: (value) => {
+      stored[CAPTURE_KEY] = value;
+      for (const fn of [...storageListeners]) fn({ [CAPTURE_KEY]: { newValue: value } }, 'local');
+    },
+    /** Let the interceptor's patience run out. */
+    runMainTimers: () => {
+      for (const fn of mainTimers.splice(0)) fn();
+    },
   };
 }
 
@@ -173,6 +270,34 @@ const okResponse = (body, status = 200) => ({
   status,
   clone: () => ({ text: async () => body }),
 });
+
+/**
+ * A response that counts what is done to it: whether the interceptor took a
+ * clone, whether that clone's body was ever read, and whether it was let go.
+ * "Reads nothing while capture is off" is a claim about exactly these.
+ */
+function watchedResponse(body) {
+  const seen = { clones: 0, reads: 0, cancels: 0 };
+  const response = {
+    ok: true,
+    status: 200,
+    clone: () => {
+      seen.clones += 1;
+      return {
+        text: async () => {
+          seen.reads += 1;
+          return body;
+        },
+        body: {
+          cancel: async () => {
+            seen.cancels += 1;
+          },
+        },
+      };
+    },
+  };
+  return { response, seen };
+}
 
 describe('capture, end to end across the world boundary', () => {
   let h;
@@ -1070,5 +1195,306 @@ describe('refresh without a readable csrf.app cookie', () => {
     await h.askPopup('pp:refresh');
 
     expect(h.refreshCalls[0].init.headers['x-hubspot-csrf-hubspotapi']).toBe('real-token');
+  });
+});
+
+// ------------------------------------------------------------------ consent
+//
+// Capture ships off and stays off until the user turns it on from the notice
+// in the popup. Everything above ran with it on. These are the cases where it
+// is not, and the claim under test is stronger than "nothing is kept": while
+// capture is off, nothing is READ. A response the page fetched goes back to
+// the page exactly as it would with no extension installed.
+
+describe('capture waits for the user to turn it on', () => {
+  const SUPPRESSION_GET = '/api/inbounddb-lists/v1/lists/4242/suppression?portalId=12345678';
+
+  it('reads nothing and keeps nothing while capture is off', async () => {
+    const h = harness({ capture: false });
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+
+    const handedBack = await h.pageFetch(HYBRID_GET);
+    await flush();
+
+    // Not cloned, so not read: the page's response was never touched.
+    expect(seen).toEqual({ clones: 0, reads: 0, cancels: 0 });
+    expect(handedBack).toBe(response);
+    expect(await h.askPopup('pp:status')).toEqual({ hasCapture: false });
+    expect(await h.askPopup('pp:payload')).toEqual({ hasCapture: false });
+    // No badge either: a check mark would advertise a capture that is not there.
+    expect(h.sent).toEqual([]);
+  });
+
+  it('is off for someone who has never been asked', async () => {
+    // A fresh install, and equally an update from a version that captured by
+    // default: storage holds nothing for the key, and nothing is not a yes.
+    const h = harness({ capture: NEVER_ASKED });
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+
+    expect(seen.clones).toBe(0);
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+  });
+
+  it.each(['true', 1, 'yes', {}, null])(
+    'does not take the non-boolean %o in storage for a yes',
+    async (junk) => {
+      const h = harness({ capture: junk });
+      const { response, seen } = watchedResponse(FLOW_BODY);
+      h.setNativeFetch(async () => response);
+
+      await h.pageFetch(HYBRID_GET);
+      await flush();
+
+      expect(seen.clones).toBe(0);
+      expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    },
+  );
+
+  it('does not touch an XHR response either', async () => {
+    const h = harness({ capture: false });
+    await flush();
+
+    let touched = 0;
+    const xhr = h.makeXhr();
+    Object.defineProperty(xhr, 'responseText', {
+      get() {
+        touched += 1;
+        return FLOW_BODY;
+      },
+    });
+    xhr.open('GET', HYBRID_GET);
+    xhr.send();
+    xhr.fire('load');
+    await flush();
+
+    expect(touched).toBe(0);
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+  });
+
+  it('keeps no sidecar bodies beside a segment while capture is off', async () => {
+    const h = harness({ capture: false, url: LIST_URL });
+    h.setNativeFetch(async () => okResponse(LIST_BODY));
+
+    await h.pageFetch(LIST_GET);
+    await h.pageFetch(SUPPRESSION_GET);
+    await flush();
+
+    // Turned on afterwards, the tab starts from nothing: no definition and no
+    // sidecar that slipped in while the answer was no.
+    h.setCapture(true);
+    await flush();
+    await h.pageFetch(LIST_GET);
+    await flush();
+
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.related).toBeNull();
+  });
+
+  it('will not fetch on request while capture is off', async () => {
+    // Refresh and Fetch missing store what they get, so they are capture by
+    // another route and answer to the same switch.
+    const h = harness({ capture: false, url: LIST_URL });
+    h.setRefresh(async () => ({ ok: true, status: 200, text: async () => LIST_BODY }));
+
+    expect(await h.askPopup('pp:refresh')).toEqual({ ok: false, error: 'capture-off' });
+    expect(await h.askPopup('pp:fetch-referenced', { listIds: ['4243'] })).toEqual({
+      ok: false,
+      error: 'capture-off',
+    });
+    expect(h.refreshCalls).toEqual([]);
+  });
+
+  it('starts capturing in a tab that is already open, the moment it is turned on', async () => {
+    const h = harness({ capture: false });
+    h.setNativeFetch(async () => okResponse(FLOW_BODY));
+
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+
+    h.setCapture(true);
+    await flush();
+
+    // What loaded before the yes was never read, so there is still nothing...
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+
+    // ...and the next response is captured, with no reload in between.
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.raw).toBe(FLOW_BODY);
+  });
+
+  it('lets go of what the tab was holding when capture is turned off', async () => {
+    const h = harness();
+    h.setNativeFetch(async () => okResponse(FLOW_BODY));
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(true);
+
+    h.setCapture(false);
+    await flush();
+
+    // Not merely "stop": the snapshot was kept on a yes that has been taken
+    // back, so it goes, and so does the check mark that advertised it.
+    expect(await h.askPopup('pp:status')).toEqual({ hasCapture: false });
+    expect(await h.askPopup('pp:payload')).toEqual({ hasCapture: false });
+    expect(h.sent).toEqual([{ type: 'pp:captured' }, { type: 'pp:dropped' }]);
+
+    // And it reads nothing from then on.
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    expect(seen.clones).toBe(0);
+  });
+
+  it('does not report a drop when there was nothing to drop', async () => {
+    const h = harness();
+    await flush();
+    h.setCapture(false);
+    await flush();
+    expect(h.sent).toEqual([]);
+  });
+});
+
+describe('the moment before the answer is known', () => {
+  // The bridge learns the setting from an asynchronous read, so for the first
+  // few milliseconds of a page neither world knows. A response landing in that
+  // window is held as an unread clone, then read or let go.
+
+  it('holds a response unread, then reads it once capture is known to be on', async () => {
+    const h = harness({ storageAnswers: false });
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    expect(seen).toEqual({ clones: 1, reads: 0, cancels: 0 });
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+
+    h.releaseStorage();
+    await flush();
+
+    // Someone who turned capture on does not lose the capture to a fast page.
+    expect(seen).toEqual({ clones: 1, reads: 1, cancels: 0 });
+    const status = await h.askPopup('pp:status');
+    expect(status.hasCapture).toBe(true);
+    expect(status.raw).toBe(FLOW_BODY);
+  });
+
+  it('lets a held response go, still unread, when the answer is no', async () => {
+    const h = harness({ capture: false, storageAnswers: false });
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    h.releaseStorage();
+    await flush();
+
+    expect(seen).toEqual({ clones: 1, reads: 0, cancels: 1 });
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+  });
+
+  it('holds only a handful, and lets the rest go at once', async () => {
+    const h = harness({ storageAnswers: false });
+    const watched = Array.from({ length: 10 }, () => watchedResponse(FLOW_BODY));
+    let next = 0;
+    h.setNativeFetch(async () => watched[next++].response);
+
+    for (let i = 0; i < watched.length; i += 1) await h.pageFetch(HYBRID_GET);
+    await flush();
+
+    const total = (field) => watched.reduce((sum, w) => sum + w.seen[field], 0);
+    expect(total('reads')).toBe(0);
+    expect(total('cancels')).toBe(2);
+
+    h.releaseStorage();
+    await flush();
+    expect(total('reads')).toBe(8);
+    expect(total('cancels')).toBe(2);
+  });
+
+  it('stops waiting after a while and treats no answer as no', async () => {
+    // An orphaned script (the extension reloaded under an open tab) would
+    // otherwise sit on a customer's responses waiting for an answer that is
+    // never coming.
+    const h = harness({ storageAnswers: false });
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    h.runMainTimers();
+
+    expect(seen).toEqual({ clones: 1, reads: 0, cancels: 1 });
+
+    // A late yes still opens it, for whatever comes next.
+    h.releaseStorage();
+    await flush();
+    h.setNativeFetch(async () => okResponse(FLOW_BODY));
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(true);
+  });
+});
+
+describe('which script decides', () => {
+  it('a page script forging the open message fools the interceptor and not the bridge', async () => {
+    // The interceptor lives in the page's own world, so the page can tell it
+    // anything. That only makes it read a response the page already has. The
+    // bridge takes its answer from a place no page script can reach.
+    const h = harness({ capture: false });
+    await flush();
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+
+    h.mainWindow.postMessage({ channel: 'portal-peeker/v1', type: 'gate-open' });
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+
+    expect(seen.reads).toBe(1);
+    expect(await h.askPopup('pp:status')).toEqual({ hasCapture: false });
+    expect(h.sent).toEqual([]);
+  });
+
+  it('a bridge with no gate ahead of it captures nothing', async () => {
+    // A manifest that forgot the gate must fail towards no capture. The build
+    // refuses that manifest; this is what happens if it ever got through.
+    const h = harness({ gate: false });
+    const { response, seen } = watchedResponse(FLOW_BODY);
+    h.setNativeFetch(async () => response);
+
+    await h.pageFetch(HYBRID_GET);
+    await flush();
+    h.runMainTimers();
+
+    expect(seen.reads).toBe(0);
+    expect((await h.askPopup('pp:status')).hasCapture).toBe(false);
+    expect(await h.askPopup('pp:refresh')).toEqual({ ok: false, error: 'capture-off' });
+  });
+
+  it('the gate only ever reads storage, and only its declared keys', async () => {
+    const h = harness({ capture: false });
+    await flush();
+    h.setCapture(true);
+    await flush();
+    h.setCapture(false);
+    await flush();
+
+    expect(h.storageWrites).toEqual([]);
+    expect(h.storageReads.length).toBeGreaterThan(0);
+    for (const keys of h.storageReads) {
+      expect(keys).toContain(CAPTURE_KEY);
+      for (const key of keys) expect(key.startsWith('portal-peeker.')).toBe(true);
+    }
   });
 });

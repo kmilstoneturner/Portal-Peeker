@@ -121,6 +121,22 @@ for (const file of ['capture/bridge.js', 'capture/interceptor.js', 'overlay/prop
   }
 }
 
+// The other half of the same claim. consent/gate.js is the one script on a
+// capture page that does read chrome.storage, for the single boolean that says
+// whether capture is on. What keeps that harmless is that it cannot see a
+// capture: a captured body reaches the isolated world only as a window message,
+// and this script must never listen for one. Checked here, next to the grep it
+// completes: the scripts that see captures cannot touch storage, and the script
+// that touches storage cannot see captures.
+{
+  const source = stripComments(readFileSync(join(DIST, 'consent/gate.js'), 'utf8'));
+  if (/addEventListener\(\s*['"]message['"]/.test(source) || /\bonmessage\b/.test(source)) {
+    failures.push(
+      'consent/gate.js listens for window messages; the script that reads storage must not be able to see a capture',
+    );
+  }
+}
+
 if (failures.length) {
   console.error('no-network check FAILED:');
   for (const failure of failures) console.error(`  ${failure}`);

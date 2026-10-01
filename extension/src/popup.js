@@ -18,6 +18,10 @@
 // permission this extension asks for. Local, never sync, so settings do not
 // leave the machine.
 //
+// One of those toggles is capture itself. It ships off, Home shows a notice
+// instead of anything else until it is on, and this page asks the tab for
+// nothing in the meantime. See showConsent() and load().
+//
 // Nothing about a capture is persisted in either.
 
 import { POPUP_MSG, REFRESH_ERROR, CAPTURE_KIND, CAPTURE_DOMAIN } from './lib/protocol.js';
@@ -28,12 +32,15 @@ import { recordTrim } from './lib/record-trim.js';
 import { uiNumbersFromText, addUiNumbers } from './lib/ui-numbers.js';
 import { buildAiContext, checkAiContext, addAiContext, MODIFICATIONS } from './lib/ai-context.js';
 import { addRelated, checkRelated } from './lib/related.js';
-import { SETTINGS } from './lib/settings.js';
+import { SETTING, SETTINGS } from './lib/settings.js';
 import { readSettings, writeSetting, settingsStoreAvailable } from './lib/settings-store.js';
 
 const el = (id) => document.getElementById(id);
 
 const view = {
+  consent: el('consent'),
+  consentOn: el('consent-on'),
+  consentStatus: el('consent-status'),
   empty: el('empty'),
   emptyHint: el('empty-hint'),
   emptyStatus: el('empty-status'),
@@ -454,7 +461,24 @@ function buildExport(raw, source, cached = false) {
 
 // ---------------------------------------------------------------- render
 
+/**
+ * Home while capture is off: the notice, and nothing else.
+ *
+ * Capture ships off, so this is the first thing anyone sees, on any tab. It is
+ * also what an update from a version that captured by default opens to. The
+ * page is not asked for anything in this state; see load().
+ */
+function showConsent() {
+  view.capture.hidden = true;
+  view.empty.hidden = true;
+  hasKind = false;
+  view.kind.hidden = true;
+  view.consent.hidden = false;
+  sayIn(view.consentStatus, '');
+}
+
 function showEmpty(hint, { canFetch = false } = {}) {
+  view.consent.hidden = true;
   view.capture.hidden = true;
   hasKind = false;
   view.kind.hidden = true;
@@ -594,6 +618,7 @@ function renderOptions(domain, trimmable, reason, numbersCheck, contextCheck, re
 }
 
 function render(status) {
+  view.consent.hidden = true;
   view.empty.hidden = true;
   view.capture.hidden = false;
   hasKind = true;
@@ -764,6 +789,18 @@ function relatedBodies(related) {
 }
 
 async function load() {
+  // The setting is read here rather than asked of the tab. It is the
+  // authority, the tab may not have a content script to ask, and with capture
+  // off there is nothing a tab could usefully say: the bridge is holding
+  // nothing and will not fetch.
+  const settings = await readSettings();
+  if (settings[SETTING.CAPTURE] !== true) {
+    snapshot = null;
+    variants = new Map();
+    showConsent();
+    return;
+  }
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabId = tab ? tab.id : null;
 
@@ -945,7 +982,12 @@ function renderSettings() {
     input.type = 'checkbox';
     input.id = setting.input;
     input.checked = setting.default;
-    input.addEventListener('change', () => writeSetting(setting.id, input.checked));
+    input.addEventListener('change', async () => {
+      await writeSetting(setting.id, input.checked);
+      // Home is one click away and must not go on showing a capture that the
+      // tab has just dropped, or hide the notice that unticking brings back.
+      if (setting.id === SETTING.CAPTURE) load();
+    });
 
     const text = document.createElement('span');
     text.textContent = setting.label;
@@ -1170,6 +1212,31 @@ view.refresh.addEventListener('click', async () => {
 // The empty state's first fetch. Same bridge message as Refresh, same single
 // user-initiated GET to HubSpot; only the surrounding copy differs, because
 // here there is no previous capture to fall back to.
+// The one affirmative act capture waits for. It writes the same setting the
+// Settings page shows as a checkbox, so there is one switch and two places to
+// reach it rather than two things that could disagree.
+view.consentOn.addEventListener('click', async () => {
+  if (!settingsStoreAvailable()) {
+    // Same stale-manifest case renderSettings explains: saying yes would not
+    // stick, and a notice that silently comes back is worse than one that says
+    // why it cannot be dismissed.
+    sayIn(
+      view.consentStatus,
+      'This cannot be saved right now. Reload Portal Peeker in chrome://extensions, then reopen this popup.',
+      true,
+    );
+    return;
+  }
+
+  view.consentOn.disabled = true;
+  await writeSetting(SETTING.CAPTURE, true);
+  await restoreSettings();
+  view.consentOn.disabled = false;
+  // Nothing was read while capture was off, so a page that is already open has
+  // no capture yet. load() says so and offers a fetch where one is possible.
+  await load();
+});
+
 view.fetch.addEventListener('click', async () => {
   view.fetch.disabled = true;
   sayIn(view.emptyStatus, 'Fetching from HubSpot...');
@@ -1247,6 +1314,8 @@ function refreshErrorText(result) {
       return 'Could not tell which workflow, segment, or record this is. Open one and try again.';
     case REFRESH_ERROR.NO_CAPTURED_URL:
       return 'Reload the page to capture this record. Refresh repeats the exact request the page made, so it needs a capture first.';
+    case REFRESH_ERROR.CAPTURE_OFF:
+      return 'This tab has not picked up that capture is on yet. Reload the page and try again.';
     case REFRESH_ERROR.HTTP:
       return result.status === 401
         ? 'HubSpot returned 401. Reload the page and try again. Your previous capture is untouched.'

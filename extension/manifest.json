@@ -53,6 +53,7 @@
         "*://*.hubspot.com/segments/*"
       ],
       "js": [
+        "consent/gate.js",
         "capture/bridge.js"
       ],
       "world": "ISOLATED",

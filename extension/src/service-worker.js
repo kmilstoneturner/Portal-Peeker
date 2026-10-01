@@ -13,13 +13,22 @@ const BADGE_TEXT = '✓';
 const BADGE_COLOR = '#ff7a59';
 
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (!message || message.type !== WORKER_MSG.CAPTURED) return;
+  if (!message) return;
 
   const tabId = sender.tab && sender.tab.id;
   if (tabId == null) return;
 
-  chrome.action.setBadgeText({ tabId, text: BADGE_TEXT }).catch(() => {});
-  chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLOR }).catch(() => {});
+  if (message.type === WORKER_MSG.CAPTURED) {
+    chrome.action.setBadgeText({ tabId, text: BADGE_TEXT }).catch(() => {});
+    chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLOR }).catch(() => {});
+    return;
+  }
+
+  // Capture was switched off and the tab let its snapshot go. Same reasoning
+  // as the reload handler below: the check mark must not outlive the capture.
+  if (message.type === WORKER_MSG.DROPPED) {
+    chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+  }
 });
 
 // A reload discards the snapshot, so the badge has to go with it. Otherwise the

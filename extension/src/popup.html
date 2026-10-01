@@ -55,6 +55,43 @@
         </header>
 
         <div class="page" id="page-home" role="tabpanel" aria-labelledby="nav-home">
+          <!--
+            Home while capture is off, which is how the extension ships and how
+            an update from a version that captured by default arrives. Nothing
+            is read on any page until the button here is pressed, so this says
+            what will be read, where it stays, and how it can leave, before any
+            of it happens. The button writes the same setting the Settings page
+            shows as a checkbox; unticking that brings this back.
+
+            The copy has to stay level with PRIVACY.md. It is the disclosure,
+            not a summary of one.
+          -->
+          <section id="consent" class="consent" hidden>
+            <p class="consent-title">Capture is off</p>
+            <p>
+              Portal Peeker can keep a copy of the JSON that HubSpot's own page loads when you
+              open a workflow, a segment, or a CRM record, so that you can copy or download it.
+            </p>
+            <p>
+              A record is real CRM data. On a contact it includes the person's name, email
+              address, and phone number.
+            </p>
+            <p>
+              Each copy stays in the memory of the tab you are looking at and is gone when you
+              reload or close it. Nothing is sent to anyone. It leaves your computer only when
+              you press Copy or Download.
+            </p>
+            <p>Until you turn capture on, Portal Peeker reads none of it.</p>
+            <div class="actions consent-actions">
+              <button id="consent-on" type="button" class="btn primary">Turn on capture</button>
+            </div>
+            <p class="consent-foot">
+              You can turn it off again in Settings. The full privacy policy is linked from
+              Portal Peeker's Chrome Web Store page.
+            </p>
+            <p class="status" id="consent-status" role="status" aria-live="polite"></p>
+          </section>
+
           <section id="empty" class="empty" hidden>
             <p class="empty-title">Open a HubSpot workflow, segment, or record to capture it.</p>
             <p class="empty-hint" id="empty-hint">

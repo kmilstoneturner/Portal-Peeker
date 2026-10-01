@@ -15,6 +15,7 @@
 
 /** Stable ids, so callers never spell a setting name as a bare string. */
 export const SETTING = {
+  CAPTURE: 'capture',
   API_NAMES: 'apiNames',
 };
 
@@ -25,6 +26,22 @@ export const SETTING = {
 // "everything else". A settings checkbox named opt-anything fails the build
 // with a message about the AI context block, which is the wrong trail.
 export const SETTINGS = [
+  {
+    id: SETTING.CAPTURE,
+    key: 'portal-peeker.capture',
+    input: 'set-capture',
+    label: 'Capture workflows, segments, and records',
+    note: "Keeps the JSON HubSpot's own page loads for what you open, in that tab's memory only, so you can copy or download it. A record is real CRM data, personal data included. While this is off, Portal Peeker reads none of it.",
+    // Off, and this is the one default that is not a judgement call. The
+    // setting IS the consent: Chrome's disclosure policy asks for an informed
+    // yes before a product handles user data at all, and a record capture is a
+    // person's name and email address. The popup's Home page shows what will
+    // be read and turns this on with one button; unticking it here withdraws
+    // it and drops whatever the open tabs were holding. It also means an
+    // update from a version that captured by default captures nothing until
+    // its user has seen the notice, which is the point rather than a cost.
+    default: false,
+  },
   {
     id: SETTING.API_NAMES,
     key: 'portal-peeker.apiNames',

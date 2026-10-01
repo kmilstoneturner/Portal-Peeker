@@ -13,11 +13,26 @@
 // Do not merge this file with interceptor.js.
 
 // Imports stay on one line each: tools/build.mjs strips them line by line.
-import { WINDOW_CHANNEL, PAGE_MSG, POPUP_MSG, WORKER_MSG, CAPTURE_KIND, CAPTURE_DOMAIN, SIDECAR_KIND, REFRESH_ERROR } from './protocol.js';
+import { WINDOW_CHANNEL, PAGE_MSG, POPUP_MSG, WORKER_MSG, CAPTURE_KIND, CAPTURE_DOMAIN, SIDECAR_KIND, REFRESH_ERROR, GATE_MSG, GATE_GLOBAL } from './protocol.js';
 import { classifyUrl, hybridUrl, inbounddbListUrl, idsFromPageUrl } from './endpoints.js';
 
 /** @type {null | {domain: string, kind: string, raw: string, url: string, flowId: string|null, listId: string|null, objectTypeId: string|null, objectId: string|null, capturedAt: number, byteLength: number}} */
 let snapshot = null;
+
+/**
+ * Whether the user has turned capture on. Capture ships off, and this is the
+ * check that makes that true: nothing below stores, fetches, or hands out
+ * anything unless it is exactly `true`.
+ *
+ * consent-gate.js reads the setting and publishes it; this file still never
+ * mentions chrome.storage, so the grep that checks "nothing about a capture is
+ * persisted" stays as blunt as it was. null means the gate has not answered
+ * yet, and no gate at all (a manifest that forgot to load it) leaves this null
+ * for good. Both read as off.
+ *
+ * @type {boolean | null}
+ */
+let captureOn = null;
 
 /**
  * Raw bodies captured beside a segment snapshot, never in its place: the
@@ -230,10 +245,14 @@ function store(entry) {
     };
   }
 
+  // One message per capture, purely to set the per-tab badge. The service
+  // worker holds no other state.
+  tellWorker(WORKER_MSG.CAPTURED);
+}
+
+function tellWorker(type) {
   try {
-    // One message per capture, purely to set the per-tab badge. The service
-    // worker holds no other state.
-    const sent = chrome.runtime.sendMessage({ type: WORKER_MSG.CAPTURED });
+    const sent = chrome.runtime.sendMessage({ type });
     if (sent && typeof sent.catch === 'function') sent.catch(() => {});
   } catch {
     // Extension context invalidated (reload during development). Harmless.
@@ -343,6 +362,47 @@ function readable() {
   return snapshot;
 }
 
+// ---------------------------------------------------------------- the gate
+
+/**
+ * Tell the interceptor whether to read anything at all. Says nothing while the
+ * answer is unknown: the interceptor holds what it sees, unread, until it
+ * hears one way or the other.
+ */
+function tellInterceptor() {
+  if (captureOn === null) return;
+  try {
+    window.postMessage(
+      { channel: WINDOW_CHANNEL, type: captureOn ? GATE_MSG.OPEN : GATE_MSG.CLOSED },
+      location.origin,
+    );
+  } catch {
+    // A page that will not take the message is a page nothing is captured on.
+  }
+}
+
+function onGate(open) {
+  captureOn = open === true;
+  if (!captureOn) {
+    // Turning capture off is not only "stop". Whatever this tab was holding
+    // was kept on the strength of a yes that has just been withdrawn, so it
+    // goes too, rather than sitting in memory until the next reload.
+    const held = snapshot !== null;
+    snapshot = null;
+    related = null;
+    if (held) tellWorker(WORKER_MSG.DROPPED);
+  }
+  tellInterceptor();
+}
+
+// The gate script runs immediately before this one in the same isolated world.
+// If it is somehow not there, nothing subscribes, captureOn stays null, and
+// the tab captures nothing: the safe direction for a missing consent check.
+const publishedGate = globalThis[GATE_GLOBAL];
+if (publishedGate && typeof publishedGate.subscribe === 'function') {
+  publishedGate.subscribe(onGate);
+}
+
 // ---------------------------------------------- MAIN world -> this world
 
 window.addEventListener('message', (event) => {
@@ -352,6 +412,19 @@ window.addEventListener('message', (event) => {
 
   const data = event.data;
   if (!data || data.channel !== WINDOW_CHANNEL) return;
+
+  // The interceptor asks once as it loads, in case it loaded after the answer
+  // was posted. Answered only once there is an answer to give.
+  if (data.type === GATE_MSG.QUERY) {
+    tellInterceptor();
+    return;
+  }
+
+  // The gate that counts. The interceptor holds back too, so that nothing is
+  // even read while capture is off, but it lives in the page's world and a page
+  // script could tell it anything. Nothing reaches a snapshot from here unless
+  // the gate itself said yes.
+  if (captureOn !== true) return;
   if (typeof data.body !== 'string' || data.body.length === 0) return;
 
   if (data.type === PAGE_MSG.CAPTURE) {
@@ -388,6 +461,10 @@ window.addEventListener('message', (event) => {
 // ---------------------------------------------------------------- refresh
 
 async function refresh() {
+  // A fetch stores what it gets, so it is capture by another route and answers
+  // to the same switch.
+  if (captureOn !== true) return { ok: false, error: REFRESH_ERROR.CAPTURE_OFF };
+
   const current = readable();
   const ids = idsFromPageUrl(location.href);
 
@@ -505,6 +582,8 @@ async function authedGet(url, csrf) {
  * beats one that refused to grow, and the popup reports which ids failed.
  */
 async function fetchReferenced(listIds) {
+  if (captureOn !== true) return { ok: false, error: REFRESH_ERROR.CAPTURE_OFF };
+
   const current = readable();
   if (!current || current.domain !== CAPTURE_DOMAIN.LIST || !current.listId) {
     return { ok: false, error: REFRESH_ERROR.NO_ID };
