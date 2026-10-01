@@ -18,6 +18,14 @@
 // HubSpot's own name for this order (findings page, section 6). When chirp
 // capture exists, that field is the test oracle for this walker.
 //
+// All of that was on classic flows. Read back on a platform (non-classic)
+// canvas in October 2026: a 20-action flow, one branch of nine columns each
+// two cards deep, at two anchors. The last column's first card is 11 and the
+// first column's second card is 12, as computed, which rules out depth-first,
+// reversed branch order, and numbering by actionId there. That flow has no
+// default branch and no GOTO edge, so those two parts of the rule still rest
+// on the classic evidence alone.
+//
 // The numbers are volatile by nature: adding, moving, or removing one action
 // renumbers everything after it in reading order. They are only meaningful
 // against the exact capture they were computed from. actionId is the stable

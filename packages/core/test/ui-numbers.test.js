@@ -12,6 +12,7 @@ const CASES = fixture('synthetic/ui-number-cases.synthetic.json');
 const LOAD_V3 = fixture('synthetic/hybrid-get-v3.json');
 const SAVE_V4 = fixture('synthetic/save-response-v4.json');
 const REFRESH_V4 = fixture('synthetic/refresh-response-v4.json');
+const PLATFORM = fixture('synthetic/hybrid-get-platform.synthetic.json');
 
 const flowOf = (raw) => findFlow(JSON.parse(raw)).flow;
 
@@ -83,6 +84,20 @@ describe('the scrubbed capture chain', () => {
     expect(uiNumbersFromText(LOAD_V3).byActionId).toEqual({ 1: 1, 2: 2, 3: 3 });
     expect(uiNumbersFromText(SAVE_V4).byActionId).toEqual({ 1: 1, 2: 2, 3: 3, 4: 4 });
     expect(uiNumbersFromText(REFRESH_V4).byActionId).toEqual({ 1: 1, 2: 2, 3: 3, 4: 4 });
+  });
+});
+
+describe('a platform (non-classic) flow', () => {
+  it('walks the same graph encoding, so the numbers follow reading order, not actionId', () => {
+    // 1 delays, 2 branches to 3 and 5, and 3 continues to 4. Row by row that
+    // is 1 | 2 | 3, 5 | 4, so 5 is card 4 and 4 is card 5. The walk ignores
+    // isClassicWorkflow; this pins that the platform shape needs no special
+    // case. The canvas agrees: read back in October 2026 on a platform flow
+    // laid out the same way, a branch whose columns run two cards deep (see
+    // the evidence note at the top of ui-numbers.js).
+    const result = uiNumbersFromText(PLATFORM);
+    expect(result.ok, result.reason || '').toBe(true);
+    expect(result.byActionId).toEqual({ 1: 1, 2: 2, 3: 3, 5: 4, 4: 5 });
   });
 });
 

@@ -1,0 +1,172 @@
+{
+  "portalId": 12345678,
+  "listId": 4242,
+  "listVersion": 3,
+  "objectTypeId": "0-1",
+  "processingType": "DYNAMIC",
+  "name": "Contacts at partner resellers",
+  "metadata": {
+    "createdAt": 1780000000000,
+    "updatedAt": 1780001200000,
+    "definitionUpdatedAt": 1780000600000,
+    "deletedAt": null,
+    "processingStatus": "COMPLETE",
+    "authorId": 60000001,
+    "createdById": 60000001,
+    "updatedById": null,
+    "createRefId": 14,
+    "generatedByAi": false,
+    "isLookalikeList": false,
+    "isClusterSegment": false,
+    "segmentLabel": null,
+    "listPermissions": {
+      "assetTeamId": null,
+      "membershipTeamId": null,
+      "includeUnassigned": null,
+      "readOnly": false,
+      "usersWithViewAccess": [],
+      "usersWithEditAccess": [],
+      "teamsWithViewAccess": [],
+      "teamsWithEditAccess": [],
+      "listAccessLevel": "EVERYONE_EDIT",
+      "userAccessLevel": null
+    },
+    "membershipSettings": {
+      "membershipLevel": null,
+      "membershipTeamId": null,
+      "includeUnassigned": null,
+      "strategicSegmentSettings": {
+        "marketSegmentId": null,
+        "marketSegmentListId": null
+      },
+      "suppressionSettings": {
+        "suppressionLists": [],
+        "suppressionObjectIds": [],
+        "secondarySuppressionListId": null,
+        "individualSuppressionSecondaryListId": null,
+        "emailDomainSuppressionSecondaryListId": null,
+        "exclusionRules": {
+          "excludeNonMarketingContacts": false,
+          "excludeUnsubscribers": false,
+          "excludedEmailDomains": []
+        }
+      }
+    },
+    "scheduleSettings": null,
+    "filterBranchNames": null,
+    "limitExempt": false,
+    "public": true,
+    "active": true,
+    "primaryReferenceTypeIfSecondaryList": null,
+    "createReferenceType": "PUBLIC_MIGRATED_DEFINITION"
+  },
+  "filterBranch": {
+    "filterBranchOperator": "OR",
+    "filters": [],
+    "filterBranches": [
+      {
+        "filterBranchOperator": "AND",
+        "filters": [
+          {
+            "filterType": "PROPERTY",
+            "property": "hs_email_domain",
+            "operation": {
+              "propertyType": "multistring",
+              "operator": "IS_EQUAL_TO",
+              "defaultValue": null,
+              "includeObjectsWithNoValueSet": false,
+              "values": [
+                "example.com",
+                "example.net"
+              ],
+              "pruningRefineBy": null,
+              "coalescingRefineBy": {
+                "setType": "ANY",
+                "type": "SetOccurrencesRefineBy"
+              },
+              "operationType": "multistring",
+              "operatorName": "IS_EQUAL_TO"
+            },
+            "frameworkFilterId": null,
+            "filterInsightsId": null,
+            "context": null
+          }
+        ],
+        "filterBranches": [],
+        "filterBranchId": null,
+        "filterInsightsId": null,
+        "filterBranchType": "AND"
+      },
+      {
+        "filterBranchOperator": "AND",
+        "filters": [
+          {
+            "frameworkFilterId": null,
+            "filterInsightsId": null,
+            "listId": 4243,
+            "listIdMaybe": 4243,
+            "operator": "IN_LIST",
+            "metadata": null,
+            "filterType": "IN_LIST"
+          }
+        ],
+        "filterBranches": [],
+        "filterBranchId": null,
+        "filterInsightsId": null,
+        "filterBranchType": "AND"
+      },
+      {
+        "filterBranchOperator": "AND",
+        "filters": [],
+        "filterBranches": [
+          {
+            "filterBranchOperator": "AND",
+            "filters": [
+              {
+                "filterType": "PROPERTY",
+                "property": "partner_tier",
+                "operation": {
+                  "propertyType": "enumeration",
+                  "operator": "IS_ANY_OF",
+                  "values": [
+                    "Gold",
+                    "Silver"
+                  ],
+                  "defaultValue": null,
+                  "includeObjectsWithNoValueSet": false,
+                  "operationType": "enumeration",
+                  "operatorName": "IS_ANY_OF"
+                },
+                "frameworkFilterId": null,
+                "filterInsightsId": 4,
+                "context": null
+              }
+            ],
+            "filterBranches": [],
+            "filterBranchId": null,
+            "filterInsightsId": null,
+            "objectTypeId": "0-2",
+            "operator": "IN_LIST",
+            "coalescingRefineBy": {
+              "setType": "ANY",
+              "type": "SetOccurrencesRefineBy"
+            },
+            "associationListId": 4244,
+            "associationCategory": "HUBSPOT_DEFINED",
+            "associationTypeId": 279,
+            "objectType": "COMPANY",
+            "filterBranchType": "ASSOCIATION"
+          }
+        ],
+        "filterBranchId": null,
+        "filterInsightsId": null,
+        "filterBranchType": "AND"
+      }
+    ],
+    "filterBranchId": null,
+    "filterInsightsId": null,
+    "filterBranchType": "OR"
+  },
+  "description": "",
+  "uuid": "00000000-0000-4000-8000-000000000042"
+}

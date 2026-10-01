@@ -10,13 +10,17 @@
 // check fails the build when the popup grows an export option the list has
 // never heard of.
 //
-// Three checks against the popup sources:
+// Four checks against the popup sources and the table itself:
 //
 //   1. Every export option checkbox in popup.html corresponds to an entry in
 //      MODIFICATIONS, or is the AI context checkbox itself.
 //   2. Every flag the popup reports is a flag the table declares.
 //   3. The popup does not hand-write filename marks, apart from the block's
 //      own, since a hand-written mark is a modification with no entry.
+//   4. Every domain a MODIFICATIONS entry names is one the block can speak
+//      for (CONTEXT_DOMAINS). An entry whose domain the DOMAINS table does
+//      not know emits no prose at all, silently: the file changes and the
+//      block says nothing, which is the exact failure this guard exists for.
 //
 // The vitest side covers the other half: every entry in the table has prose,
 // and toggling any entry changes what the block says.
@@ -24,7 +28,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { MODIFICATIONS } from '../packages/core/src/ai-context.js';
+import { MODIFICATIONS, CONTEXT_DOMAINS } from '../packages/core/src/ai-context.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const POPUP_HTML = 'extension/src/popup.html';
@@ -87,6 +91,18 @@ for (const mark of matchAll(js, /marks\.push\('([a-z]+)'\)/g)) {
     failures.push(
       `${POPUP_JS} writes the filename mark '${mark}' by hand. Marks come from MODIFICATIONS so\n` +
         '    that a suffix and a sentence in the block can never disagree.',
+    );
+  }
+}
+
+// 4. Domain coverage.
+for (const entry of MODIFICATIONS) {
+  const domain = entry.domain || 'flow';
+  if (!CONTEXT_DOMAINS.includes(domain)) {
+    failures.push(
+      `MODIFICATIONS entry ${entry.flag} names domain '${domain}', which the DOMAINS table in\n` +
+        '    packages/core/src/ai-context.js does not know. The block would silently emit no prose\n' +
+        '    for it: the export changes and nothing tells the reader.',
     );
   }
 }

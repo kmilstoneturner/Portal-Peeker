@@ -153,6 +153,23 @@ body {
   font-size: 12px;
 }
 
+/* The empty state is centered text; the shared .actions padding is tuned for
+   the capture card and sits too wide here. The button keeps its own width
+   rather than flexing to the full column so it reads as an offer, not a form. */
+.empty-actions {
+  justify-content: center;
+  padding: 14px 14px 0;
+}
+
+.empty-actions .btn {
+  flex: 0 1 auto;
+  padding: 7px 18px;
+}
+
+.empty-actions .btn[hidden] {
+  display: none;
+}
+
 .rows {
   margin: 0;
   padding: 6px 14px 2px;
@@ -163,6 +180,12 @@ body {
   gap: 10px;
   align-items: baseline;
   padding: 5px 0;
+}
+
+/* display: flex above beats the UA stylesheet's [hidden] rule, so the two
+   segment-only rows need this stated explicitly or hidden would do nothing. */
+.row[hidden] {
+  display: none;
 }
 
 .row dt {
@@ -236,6 +259,42 @@ body {
 .check.is-disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* Same story as .row above: display: flex on .check beats the UA's [hidden]
+   rule. The options box swaps by capture type — workflow options hide on a
+   segment capture and the segment bundle hides on a workflow — so this has to
+   actually hide. */
+.check[hidden] {
+  display: none;
+}
+
+/* An inline action that lives inside a value row (Fetch missing on the
+   Referenced row): quieter than the main buttons, still obviously clickable. */
+.mini {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mini:hover:not(:disabled) {
+  background: #e5f8f6;
+}
+
+.mini:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mini[hidden] {
+  display: none;
 }
 
 /* The info buttons explain the two in-band additions (uiNumber, _aiContext)

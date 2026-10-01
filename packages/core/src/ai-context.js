@@ -13,18 +13,36 @@
 // JSON.stringify would silently re-encode them: number formats, escapes, and
 // key order are all round-trip hazards. Splicing keeps the guarantee provable
 // in the other direction instead: the insertion is one contiguous span, so
-// removing it restores the previous text byte for byte.
-//
-// The text is still parsed once, as a validity check whose result is thrown
-// away. That check is what makes indexOf('{') safe: in a JSON document whose
-// root is an object, nothing but whitespace can precede the root brace, since
-// JSON has no comments and no prologue. Anything that fails the check withdraws
-// the whole option rather than producing a file with a half-true block in it.
+// removing it restores the previous text byte for byte. The check and the
+// splice themselves live in root-splice.js, shared with the related-captures
+// bundle, so the two insertions cannot drift apart. Anything that fails the
+// check withdraws the whole option rather than producing a file with a
+// half-true block in it.
+
+import { checkRootObject, spliceFirstKey } from './root-splice.js';
 
 const CONTEXT_KEY = '_aiContext';
 
 const WHAT_THIS_IS =
   'One HubSpot workflow, captured as JSON from the workflow editor by the Portal Peeker browser extension.';
+
+const WHAT_THIS_IS_LIST =
+  'One HubSpot segment (list): its definition and filter criteria, captured as JSON from the lists tool by the Portal Peeker browser extension.';
+
+// "as of the capture", never "current": claiming currency is the one thing
+// this extension never does, and prose about a record's "current values"
+// would read as exactly that claim.
+const WHAT_THIS_IS_RECORD =
+  'One HubSpot CRM record: its property values and object metadata, captured as JSON from the record page by the Portal Peeker browser extension.';
+
+const RECORD_PROPERTIES =
+  'The properties map is keyed by internal property name and holds every property on the record as of the capture; the modification notes below say how each entry is shaped.';
+
+const RECORD_CONTENTS =
+  'This file holds one record\'s actual data, which can include personal information about the person or company it describes.';
+
+const LIST_FILTERS =
+  'The filterBranch tree is the segment membership logic: filterBranches nest with filterBranchOperator (AND/OR), and each filters array holds the individual conditions.';
 
 const REVERSIBLE =
   'Portal Peeker inserted this _aiContext block as the first key of the document: delete this one key and every remaining byte is exactly what was captured or exported without it.';
@@ -53,6 +71,27 @@ const NUMBERED_CAVEAT =
 const UNNUMBERED =
   'Editor card numbers are not present in this export. actionId is the stable handle for referring to an action.';
 
+const RELATED_INSERTED =
+  'A _related key was inserted next to this block, holding responses HubSpot\'s page loaded alongside this segment, each byte-for-byte as received: delete that one key and the rest of the document is exactly the export without it.';
+
+const RELATED_BATCHES =
+  'When present, _related.listBatches is an array of hydration responses; each element is one response body, itself an array of full definitions for lists this segment references through IN_LIST, association, or suppression criteria. A referenced list with no definition in there was not loaded by the page and lives in a separate capture.';
+
+const RELATED_FETCHED =
+  'When present, _related.fetchedLists holds single-definition responses fetched on request for referenced lists the page itself never loaded, most often the suppression lists; each element is one verbatim response body.';
+
+const RELATED_EXTRAS =
+  'When present, _related.suppression and _related.membershipCounts are the raw suppression settings and membership counts responses for this segment.';
+
+const RELATED_ABSENT =
+  'Lists referenced through IN_LIST, association, or suppression criteria appear as ids only: their definitions are separate captures and are not in this file.';
+
+const VALUES_TELLS =
+  'Each property was reduced to its value, held directly under its property name: change history (versions), write provenance, and the currentUserPermissions block were removed before export. Every value that remains is exactly what HubSpot sent; a property whose shape was not recognized keeps its original wrapped entry.';
+
+const VALUES_ABSENT =
+  'Each property carries its full provenance beside its value field: versions holds that property\'s stored history entry, and the fields beside it say how and when the value was written.';
+
 /**
  * Every way an export can differ from what HubSpot sent.
  *
@@ -68,6 +107,10 @@ const UNNUMBERED =
  * prevent.
  */
 export const MODIFICATIONS = [
+  // `domain` names the kind of capture an option applies to; absent means
+  // flow. The block only speaks about options from the export's own domain,
+  // because prose about editor cards in a segment file, or about referenced
+  // lists in a workflow file, would describe features the file cannot have.
   {
     flag: 'trimmedToWorkflowLogic',
     mark: 'trimmed',
@@ -89,7 +132,75 @@ export const MODIFICATIONS = [
     tells: [NUMBERED, NUMBERED_CAVEAT],
     tellsWhenAbsent: [UNNUMBERED],
   },
+  {
+    flag: 'relatedCapturesIncluded',
+    mark: 'related',
+    label: 'related lists',
+    domain: 'list',
+    tells: [RELATED_INSERTED, RELATED_BATCHES, RELATED_FETCHED, RELATED_EXTRAS],
+    tellsWhenAbsent: [RELATED_ABSENT],
+  },
+  {
+    // The record trim. The flag parallels trimmedToWorkflowLogic; the popup
+    // checkbox reads "Only export property values". The mark cannot be
+    // "trimmed" (marks are asserted distinct, and that one belongs to the
+    // flow entry) and must match /^[a-z]+$/.
+    flag: 'trimmedToPropertyValues',
+    mark: 'values',
+    label: 'property values',
+    domain: 'record',
+    tells: [VALUES_TELLS],
+    tellsWhenAbsent: [VALUES_ABSENT],
+  },
 ];
+
+/**
+ * The domains the context block can speak for, one spec each: the opening
+ * sentence, the key the subject rides under, the extra prose that domain
+ * always gets, and how to build the subject from the meta. A MODIFICATIONS
+ * entry whose domain is not in this table would silently emit no prose, which
+ * is exactly the failure this file exists to prevent, so the table's keys are
+ * exported for the guard and the tests to check coverage against.
+ */
+const DOMAINS = {
+  flow: {
+    whatThisIs: WHAT_THIS_IS,
+    subjectKey: 'workflow',
+    extras: [],
+    subject: (source) => ({
+      flowId: source.flowId,
+      name: source.flowName,
+      portalId: source.portalId,
+      version: source.flowVersion,
+    }),
+  },
+  list: {
+    whatThisIs: WHAT_THIS_IS_LIST,
+    subjectKey: 'list',
+    extras: [LIST_FILTERS],
+    subject: (source) => ({
+      listId: source.listId,
+      name: source.listName,
+      portalId: source.portalId,
+      version: source.listVersion,
+      processingType: source.processingType,
+      objectTypeId: source.objectTypeId,
+    }),
+  },
+  record: {
+    whatThisIs: WHAT_THIS_IS_RECORD,
+    subjectKey: 'record',
+    extras: [RECORD_PROPERTIES, RECORD_CONTENTS],
+    subject: (source) => ({
+      objectTypeId: source.objectTypeId,
+      objectId: source.objectId,
+      name: source.recordName,
+      portalId: source.portalId,
+    }),
+  },
+};
+
+export const CONTEXT_DOMAINS = Object.keys(DOMAINS);
 
 /** Drop null and undefined members. Returns null when nothing is left. */
 function compact(fields) {
@@ -109,12 +220,20 @@ function compact(fields) {
  * and a wrong value.
  *
  * @param {object} meta
+ * @param {'flow'|'list'|'record'} [meta.domain] what the capture is of; flow if absent
  * @param {string|null} [meta.capturedAtIso] capture time, ISO 8601
- * @param {string|null} [meta.capturedFrom] 'editor load' | 'save' | 'refresh'
+ * @param {string|null} [meta.capturedFrom] 'editor load' | 'record page load' | 'save' | 'refresh'
  * @param {string|null} [meta.flowId]
  * @param {string|null} [meta.flowName]
- * @param {string|null} [meta.portalId]
  * @param {number|string|null} [meta.flowVersion]
+ * @param {string|null} [meta.listId]
+ * @param {string|null} [meta.listName]
+ * @param {number|string|null} [meta.listVersion]
+ * @param {string|null} [meta.processingType]
+ * @param {string|null} [meta.objectTypeId] lists and records
+ * @param {string|null} [meta.objectId] records only
+ * @param {string|null} [meta.recordName] records only: resolved display name
+ * @param {string|null} [meta.portalId]
  * @param {string|null} [meta.extensionVersion]
  * @param {object} [meta.modifications] which export options actually ran
  * @returns {object}
@@ -122,31 +241,39 @@ function compact(fields) {
 export function buildAiContext(meta = {}) {
   const source = meta && typeof meta === 'object' ? meta : {};
   const flags = source.modifications && typeof source.modifications === 'object' ? source.modifications : {};
+  // Resolved once against the DOMAINS table, never a two-armed ternary: with
+  // three domains, a boolean would silently hand a record export flow prose.
+  // Unknown or absent stays flow, matching every caller from before domains
+  // existed.
+  const domain = Object.hasOwn(DOMAINS, source.domain) ? source.domain : 'flow';
+  const spec = DOMAINS[domain];
 
   const modifications = {};
   for (const entry of MODIFICATIONS) modifications[entry.flag] = Boolean(flags[entry.flag]);
 
   const howToUse = [REVERSIBLE, source.capturedAtIso ? SNAPSHOT_AT : SNAPSHOT];
 
-  if (MODIFICATIONS.every((entry) => !modifications[entry.flag])) howToUse.push(UNMODIFIED);
-  for (const entry of MODIFICATIONS) {
+  // Only options from the export's own domain get a voice, in the untouched
+  // line as in the per-option prose: workflow prose (actionId, editor cards)
+  // in a segment file, or segment prose in a workflow file, would explain
+  // features the file cannot have, and a flag from another domain cannot
+  // have run against this file at all.
+  const domainEntries = MODIFICATIONS.filter((entry) => (entry.domain || 'flow') === domain);
+  if (domainEntries.every((entry) => !modifications[entry.flag])) howToUse.push(UNMODIFIED);
+  for (const entry of domainEntries) {
     howToUse.push(...(modifications[entry.flag] ? entry.tells : entry.tellsWhenAbsent));
   }
+  howToUse.push(...spec.extras);
 
-  const workflow = compact({
-    flowId: source.flowId,
-    name: source.flowName,
-    portalId: source.portalId,
-    version: source.flowVersion,
-  });
+  const subject = compact(spec.subject(source));
   const capture = compact({
     capturedAt: source.capturedAtIso,
     capturedFrom: source.capturedFrom,
   });
 
-  const block = { whatThisIs: WHAT_THIS_IS, tool: 'Portal Peeker' };
+  const block = { whatThisIs: spec.whatThisIs, tool: 'Portal Peeker' };
   if (source.extensionVersion != null) block.extensionVersion = source.extensionVersion;
-  if (workflow) block.workflow = workflow;
+  if (subject) block[spec.subjectKey] = subject;
   if (capture) block.capture = capture;
   block.modifications = modifications;
   block.howToUse = howToUse;
@@ -163,25 +290,7 @@ export function buildAiContext(meta = {}) {
  * @returns {{ok: boolean, reason: string|null}}
  */
 export function checkAiContext(jsonText) {
-  if (typeof jsonText !== 'string' || jsonText.trim() === '') {
-    return { ok: false, reason: 'empty body' };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return { ok: false, reason: 'body is not JSON' };
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, reason: 'response root is not a JSON object' };
-  }
-  if (Object.hasOwn(parsed, CONTEXT_KEY)) {
-    // Either the file has already been through this extension, or HubSpot has
-    // started shipping the key. Overwriting would destroy data and two blocks
-    // cannot both be the first key, so the only honest move is to step aside.
-    return { ok: false, reason: `payload already carries an ${CONTEXT_KEY} field` };
-  }
-  return { ok: true, reason: null };
+  return checkRootObject(jsonText, CONTEXT_KEY, 'an');
 }
 
 /**
@@ -208,16 +317,6 @@ export function addAiContext(jsonText, contextObject) {
   }
   if (typeof serialized !== 'string') return refuse('context block would not serialize');
 
-  // Safe because the parse above succeeded with an object at the root: the only
-  // characters that can precede the root brace are JSON whitespace. indexOf
-  // rather than a regex on purpose, since the JS \s class matches characters
-  // (U+FEFF among them) that the JSON grammar does not.
-  const at = jsonText.indexOf('{') + 1;
-  const rest = jsonText.slice(at);
-  // {} has no members to separate, so no comma. Rare, and invalid JSON without
-  // this branch.
-  const emptyRoot = /^[ \t\n\r]*\}/.test(rest);
-  const inserted = `"${CONTEXT_KEY}":${serialized}${emptyRoot ? '' : ','}`;
-
-  return { ok: true, output: jsonText.slice(0, at) + inserted + rest, reason: null, inserted };
+  const { output, inserted } = spliceFirstKey(jsonText, `"${CONTEXT_KEY}":${serialized}`);
+  return { ok: true, output, reason: null, inserted };
 }
