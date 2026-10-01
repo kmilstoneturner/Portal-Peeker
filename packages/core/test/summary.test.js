@@ -13,6 +13,10 @@ const fixture = (name) =>
 const LOAD_V3 = fixture('synthetic/hybrid-get-v3.json');
 const SAVE_V4 = fixture('synthetic/save-response-v4.json');
 const REFRESH_V4 = fixture('synthetic/refresh-response-v4.json');
+// A platform (non-classic) flow, hand-authored to the shape of the first one
+// captured. That capture came from a client portal and is never committed:
+// this file keeps its keys, key order, and vocabulary, and invents the rest.
+const PLATFORM = fixture('synthetic/hybrid-get-platform.synthetic.json');
 // A scrubbed mirror of GET /api/inbounddb-lists/v1/lists/{listId}: the segment
 // definition the lists tool fetches when a list opens.
 const LIST_GET = fixture('synthetic/inbounddb-list-get.json');
@@ -73,6 +77,35 @@ describe('summarize: save and refresh captures', () => {
     // These two were captured byte for byte identical: Refresh returns exactly
     // the state the save produced.
     expect(summarize(REFRESH_V4)).toEqual(summarize(SAVE_V4));
+  });
+});
+
+describe('summarize: platform (non-classic) flow', () => {
+  const result = summarize(PLATFORM);
+
+  it('recognizes the platform envelope exactly as it does the classic one', () => {
+    // Flagged unrecognized until one was captured. The envelope turned out to
+    // be the classic one with classicEnrollmentSettings null, so there is
+    // nothing here for the popup to degrade over.
+    expect(result.recognized).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.domain).toBe('flow');
+    expect(result.isClassicWorkflow).toBe(false);
+  });
+
+  it('reads the popup rows', () => {
+    expect(result.name).toBe('Route new companies to a review queue');
+    expect(result.flowId).toBe('1000000002');
+    expect(result.portalId).toBe('12345678');
+    expect(result.version).toBe(5);
+    expect(result.enabled).toBe(false);
+    expect(result.actionCount).toBe(5);
+  });
+
+  it('reports no legacy workflow id rather than inventing one', () => {
+    // The join key to the legacy API lives in classicEnrollmentSettings,
+    // which is null here: a flow built on the platform never had a legacy id.
+    expect(result.legacyWorkflowId).toBeNull();
   });
 });
 
@@ -456,14 +489,14 @@ describe('summarize: degraded shapes never throw', () => {
     expect(summarize('{"status":"error","message":"nope"}').recognized).toBe(false);
   });
 
-  it('flags a platform flow instead of guessing at it', () => {
-    const raw = JSON.stringify({ flowId: 1, name: 'Platform flow', isClassicWorkflow: false, actions: {} });
+  it('flags a flow with no actions map, and still reports what it can', () => {
+    const raw = JSON.stringify({ flowId: 1, name: 'No actions', isClassicWorkflow: true });
     const result = summarize(raw);
     expect(result.recognized).toBe(false);
-    expect(result.reason).toBe('platform flow envelope not yet supported');
+    expect(result.reason).toBe('no actions map in response');
     // Degraded, not blank: the popup still has something to show.
     expect(result.flowId).toBe('1');
-    expect(result.name).toBe('Platform flow');
+    expect(result.name).toBe('No actions');
   });
 
   it('preserves an unknown connectionType rather than choking on it', () => {

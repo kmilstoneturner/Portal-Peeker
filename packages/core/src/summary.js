@@ -18,7 +18,7 @@
  * @property {string|null} portalId
  * @property {number|string|null} version  flow version, or listVersion
  * @property {boolean|null} isClassicWorkflow
- * @property {string|null} legacyWorkflowId
+ * @property {string|null} legacyWorkflowId  classic flows only: a platform flow has none
  * @property {number|null} actionCount
  * @property {boolean|null} enabled
  * @property {string|null} processingType  DYNAMIC | SNAPSHOT | MANUAL, lists only
@@ -504,15 +504,16 @@ export function summarize(rawText) {
   };
 
   // Degrade, do not fail. A partial inspection beats a blank panel.
+  //
+  // Platform (non-classic) flows are deliberately not a case here. Until one
+  // was captured (September 2026) they were flagged unrecognized, on the
+  // prediction that their envelope would invert the classic one. It does not:
+  // same root keys in the same order, enrollment still in enrollmentCriteria,
+  // classicEnrollmentSettings null. Every field above reads the same on both,
+  // and legacyWorkflowId is null because a platform flow has none.
   if (summary.flowId == null) {
     summary.recognized = false;
     summary.reason = 'no flowId in response';
-  } else if (summary.isClassicWorkflow === false) {
-    // Platform (non-classic) flows have not been captured yet. Enrollment lives
-    // somewhere other than classicEnrollmentSettings and the reader for it does
-    // not exist. Flag it and keep going.
-    summary.recognized = false;
-    summary.reason = 'platform flow envelope not yet supported';
   } else if (summary.actionCount == null) {
     summary.recognized = false;
     summary.reason = 'no actions map in response';

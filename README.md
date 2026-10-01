@@ -557,9 +557,10 @@ pointing at documents.
   itself refetched nothing. One reload captures it, and the empty state says so. The
   refusal is the fail-closed guard doing its job; a possible later refinement is holding
   the refused body aside and promoting it only when the URL comes to match its exact pair.
-- Platform (non-classic) flow envelopes have never been captured. `summarize` flags
-  `isClassicWorkflow: false` as unrecognized. Capture itself is unaffected: it is parser
-  free, and Copy and Download work on the raw bytes regardless.
+- Platform (non-classic) flows are read exactly like classic ones, on the strength of one
+  flow: event-triggered, with an envelope that turned out to be the classic shape. No
+  filter-triggered platform flow has been captured; the trim drops only what it has
+  compared, so an unseen enrollment layout costs size, never content.
 
 ## Licence
 

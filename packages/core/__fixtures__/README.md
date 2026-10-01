@@ -11,6 +11,7 @@ Everything committed. **No value in here came from a live portal.**
 | `hybrid-get-v3.json` | `GET /hybrid/{flowId}` on editor load, three actions, version 3 |
 | `save-response-v4.json` | the same flow after adding an email notification, version 4 |
 | `refresh-response-v4.json` | a Refresh taken immediately after that save |
+| `hybrid-get-platform.synthetic.json` | `GET /hybrid/{flowId}` on a platform (non-classic) flow, hand-authored to an observed shape |
 | `inbounddb-list-get.json` | `GET /inbounddb-lists/v1/lists/{listId}`: a segment definition |
 | `inbounddb-list-getbatch.json` | the hydration response holding the lists that segment references |
 | `crm-objects-batch-contact.json` | `GET /crm-objects/{type}/batch`: a contact record, name table resolvable |
@@ -19,11 +20,12 @@ Everything committed. **No value in here came from a live portal.**
 | `trim-cases.synthetic.json` | a workflow that could not exist, covering every trim rule and every retraction |
 | `ui-number-cases.synthetic.json` | a graph built so every wrong traversal produces a different numbering |
 
-All but the last three are **scrubbed copies** of real captures: structure, key
-order, and HubSpot vocabulary are exactly as returned, while every identifier and
-every piece of authored content was replaced with a synthetic stand-in,
-consistently across files so cross-file relationships still hold. The last three
-are hand-authored. See `synthetic/README.md`.
+Every file without `.synthetic` in its name is a **scrubbed copy** of a real
+capture: structure, key order, and HubSpot vocabulary are exactly as returned,
+while every identifier and every piece of authored content was replaced with a
+synthetic stand-in, consistently across files so cross-file relationships still
+hold. The `.synthetic` files are hand-authored, one of them to the shape of a
+client-portal capture that is never committed. See `synthetic/README.md`.
 
 **Never reformat a fixture.** The observed key order, whitespace, and (in the
 duplicate-key fixture) a literal repeated key are part of what they test, and a

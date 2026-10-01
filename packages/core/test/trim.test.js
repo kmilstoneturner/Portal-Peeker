@@ -11,6 +11,7 @@ const fixture = (name) => readFileSync(fixturesDir + name, 'utf8');
 const CASES = fixture('synthetic/trim-cases.synthetic.json');
 const LOAD_V3 = fixture('synthetic/hybrid-get-v3.json');
 const SAVE_V4 = fixture('synthetic/save-response-v4.json');
+const PLATFORM = fixture('synthetic/hybrid-get-platform.synthetic.json');
 
 const trimmed = (raw, options) => {
   const result = trim(raw, options);
@@ -26,7 +27,12 @@ const ruleIds = (raw, options) => trim(raw, options).rules.map((r) => r.id);
 // trim's suite: one definition of the property both trims are judged by.
 
 describe('trim is subtractive', () => {
-  for (const [label, raw] of [['kitchen sink', CASES], ['load v3', LOAD_V3], ['save v4', SAVE_V4]]) {
+  for (const [label, raw] of [
+    ['kitchen sink', CASES],
+    ['load v3', LOAD_V3],
+    ['save v4', SAVE_V4],
+    ['platform flow', PLATFORM],
+  ]) {
     it(`removes only, never rewrites: ${label}`, () => {
       assertSubtractive(JSON.parse(raw), trimmed(raw));
     });
@@ -183,6 +189,70 @@ describe('rules retracted after the 201-action flow disproved them', () => {
   });
 });
 
+// ------------------------------------------------------------------ platform flows
+//
+// Refused until one was captured. Its envelope is the classic one with
+// classicEnrollmentSettings null, and every rule compares before it drops, so
+// no rule changed. These pin that they fire on the platform shape where they
+// should and nowhere else.
+
+describe('platform (non-classic) flows', () => {
+  const out = trimmed(PLATFORM);
+
+  it('trims to a flow that still reads as a platform flow', () => {
+    const after = summarize(trim(PLATFORM).output);
+    expect(after.recognized).toBe(true);
+    expect(after.isClassicWorkflow).toBe(false);
+    expect(after.actionCount).toBe(5);
+  });
+
+  it('keeps the event trigger, the refinement, and the event filters', () => {
+    expect(out.enrollmentCriteria.triggerType).toBe('EVENT');
+    const [events] = out.enrollmentCriteria.triggers.filterBranches[0].filterBranches;
+    expect(events.filterBranchType).toBe('UNIFIED_EVENTS');
+    expect(events.eventTypeId).toBe('4-900001');
+    expect(out.enrollmentCriteria.refinementCriteria).toBeDefined();
+    // The same trigger again in another shape. Nothing is byte-equal to it,
+    // so there is nothing to compare against and it stays.
+    expect(out.flowEventFilters).toHaveLength(1);
+  });
+
+  it('drops enrollmentTrigger because it matches triggerType, not because it is expected to', () => {
+    expect(out.enrollmentTrigger).toBeUndefined();
+    expect(ruleIds(PLATFORM)).toContain('dedupe:enrollmentTrigger');
+  });
+
+  it('keeps a REFINE_BY_LIST filterBranch: the enrollment-list rule is scoped to its list type', () => {
+    // It equals refinementCriteria here, as in the one capture seen so far.
+    // No rule claims that yet, and the ENROLLMENT_LIST rule must not stretch
+    // to cover a list type it was never checked against.
+    const refine = out.associatedLists.find((l) => l.listTypes.includes('REFINE_BY_LIST'));
+    expect(refine.filterBranch).toEqual(out.enrollmentCriteria.refinementCriteria);
+  });
+
+  it('keeps the settings a platform flow carries beside its trigger', () => {
+    expect(out.isClassicWorkflow).toBe(false);
+    expect(out.shouldReenroll).toBe(true);
+    expect(out.allowRunsFromRecordMerge).toBe(false);
+  });
+
+  it('keeps the exits: a null default branch and null terminal connections', () => {
+    expect(out.actions['2'].connection.defaultConnection).toBeNull();
+    expect(out.actions['4'].connection).toBeNull();
+    expect(out.actions['5'].connection).toBeNull();
+  });
+
+  it('drops the embedded duplicates and keeps what an association write targets', () => {
+    expect(out.actions['1'].metadata.inputValueFields).toBeUndefined();
+    expect(out.actions['1'].metadata.delay.delta).toBe(10);
+    expect(out.actions['2'].metadata).toBeUndefined();
+    expect(out.actions['4'].metadata.targetProperty.associationSpec).toEqual({
+      associationCategory: 'HUBSPOT_DEFINED',
+      associationTypeId: 280,
+    });
+  });
+});
+
 // ------------------------------------------------------------------ refusal
 
 describe('trim refuses rather than half-working', () => {
@@ -191,12 +261,6 @@ describe('trim refuses rather than half-working', () => {
     expect(result.ok).toBe(false);
     expect(result.output).toBeNull();
     expect(result.reason).toBeTruthy();
-  });
-
-  it('refuses a platform flow, whose envelope has never been captured', () => {
-    const result = trim(JSON.stringify({ flowId: 1, name: 'p', isClassicWorkflow: false, actions: {} }));
-    expect(result.ok).toBe(false);
-    expect(result.reason).toBe('platform flow envelope not yet supported');
   });
 
   it('refuses a flow nested inside an envelope rather than guessing', () => {

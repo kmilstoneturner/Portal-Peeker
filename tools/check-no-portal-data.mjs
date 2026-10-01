@@ -30,6 +30,9 @@ const ALLOWED_IDS = new Set([
   // synthetic captures, scrubbed from a trial portal
   12345678, 1000000001, 60000001, 70000001, 80000001, 80000002, 80000003,
   1780000000000, 1780000600000, 1780001200000, 1780000900000,
+  // synthetic/hybrid-get-platform: flow, data sources, event filter, event type.
+  // Hand-authored; its portal, user, and timestamps reuse the values above.
+  1000000002, 80000011, 80000012, 90000001, 900001,
   // synthetic legacy workflow id used in the endpoints tests
   771000001,
   // structural constants that are not identifiers

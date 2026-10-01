@@ -22,6 +22,42 @@ What the chain establishes:
   them, which is why the trim exempts empty recipient lists from its
   empty-collection rule.
 
+## `hybrid-get-platform.synthetic.json`
+
+The editor-load response for a **platform (non-classic)** flow,
+`isClassicWorkflow: false`. Hand-authored, and not a scrubbed copy: the only
+platform flow captured so far (September 2026) came from a client portal, and
+client captures are never committed in any form. What this file takes from that
+capture is HubSpot's side of it and nothing else: the root keys and their order,
+the key order inside every object it shows, and the vocabulary. The graph,
+names, filters, values, and ids are new. Checked by script against the capture:
+every object here matches a key sequence observed there, and the only values
+the two share are HubSpot's own words and small integers.
+
+What the capture established, and this file carries:
+
+- The platform envelope is the classic one: same root keys in the same order,
+  plus `allowRunsFromRecordMerge` and `reEnrollmentFilters`. The findings page
+  expected it to invert, with enrollment moving into `triggers`,
+  `triggerTypeId`, and `enrollmentDataset`. All three are null here, as on a
+  classic flow.
+- `classicEnrollmentSettings` is null, so a platform flow has no legacy
+  workflow id.
+- The flow is event-triggered: `enrollmentCriteria` holds `triggers` (a
+  `UNIFIED_EVENTS` branch carrying `eventTypeId`) and `refinementCriteria`, with
+  `triggerType: "EVENT"`, and `flowEventFilters` repeats the trigger in another
+  shape. No filter-triggered platform flow has been captured, so whether this
+  layout belongs to platform flows or to event triggers is open.
+- Its one associated list is a `REFINE_BY_LIST` whose `filterBranch` equals
+  `refinementCriteria`. No trim rule claims that, and the `ENROLLMENT_LIST`
+  rule must not fire on it.
+- Actions carry `actionTypeId` before `actionType`, the reverse of the capture
+  chain: one more reason never to reformat a fixture.
+
+`eventTypeId` is a stand-in as well (`4-900001`). The captured one is HubSpot's
+own id for a HubSpot-defined event (`portalSpecificEvent: false`) rather than
+portal data, but nothing reads it, so it was replaced with everything else.
+
 ## `inbounddb-list-get.json`
 
 A scrubbed mirror of a real segment (list) capture: the response of
