@@ -97,13 +97,28 @@ function reduceProvenance(log, flow, profile) {
 
     // Keep who and when, drop the rest. The referrer alone is a third of this
     // object and leaks the editor sub-path the user happened to be on.
+    //
+    // Built by walking the envelope's own keys, so what is kept stands in the
+    // order HubSpot sent it. Assigning the three fields in a fixed order did
+    // not: it put updatedAt ahead of updatedBy, which is a reordering, and the
+    // trim does not reorder. Walking also means nothing here has to know what
+    // that order is, which matters because HubSpot does not keep it stable.
+    const reduced = {
+      updatedAt: () => (keepTimestamp && envelope.updatedAt != null ? envelope.updatedAt : undefined),
+      updatedBy: () =>
+        envelope.updatedBy && envelope.updatedBy.userId != null
+          ? { userId: envelope.updatedBy.userId }
+          : undefined,
+      templateMetadata: () =>
+        envelope.templateMetadata && envelope.templateMetadata.templateId != null
+          ? { templateId: envelope.templateMetadata.templateId }
+          : undefined,
+    };
     const kept = {};
-    if (keepTimestamp && envelope.updatedAt != null) kept.updatedAt = envelope.updatedAt;
-    if (envelope.updatedBy && envelope.updatedBy.userId != null) {
-      kept.updatedBy = { userId: envelope.updatedBy.userId };
-    }
-    if (envelope.templateMetadata && envelope.templateMetadata.templateId != null) {
-      kept.templateMetadata = { templateId: envelope.templateMetadata.templateId };
+    for (const key of Object.keys(envelope)) {
+      if (!Object.hasOwn(reduced, key)) continue;
+      const value = reduced[key]();
+      if (value !== undefined) kept[key] = value;
     }
 
     log.hit('provenance:reduce', field, envelope);
@@ -295,11 +310,21 @@ function prune(log, node, inActionMetadata = false) {
   }
 }
 
+// What stands in for an action's metadata while the general sweep runs. Any
+// non-null primitive would do: prune() only descends into objects and only
+// removes nulls and empty collections, so it leaves this exactly where it is.
+const PARKED = true;
+
 function pruneFlow(log, flow) {
   const actions = flow.actions;
 
   // Action metadata first, with the recipient exemption in force, then hide it
   // from the general sweep so the exemption is not undone.
+  //
+  // Hidden by swapping in a placeholder, not by deleting the key. Deleting and
+  // re-adding it afterwards moved metadata to the end of every action, behind
+  // connection and actionType, which is a reordering and the trim does not
+  // reorder. Assigning to a key that is already there leaves it in place.
   const parked = [];
   if (actions && typeof actions === 'object' && !Array.isArray(actions)) {
     for (const action of Object.values(actions)) {
@@ -312,7 +337,7 @@ function pruneFlow(log, flow) {
         delete action.metadata;
       } else {
         parked.push([action, metadata]);
-        delete action.metadata;
+        action.metadata = PARKED;
       }
     }
   }
