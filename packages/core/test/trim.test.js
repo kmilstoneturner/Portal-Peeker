@@ -52,6 +52,24 @@ describe('trim is subtractive', () => {
     const once = trim(LOAD_V3).output;
     expect(trim(once).output).toBe(once);
   });
+
+  it('leaves what survives in the order HubSpot sent it', () => {
+    // The two places that used to move, named so a regression points at them.
+    // assertSubtractive checks order everywhere; this says where it mattered.
+    // Read off the keys rather than compared with toEqual, which does not see
+    // key order at all, and that blind spot is how this went unnoticed.
+    const out = JSON.parse(trim(LOAD_V3).output);
+    const raw = JSON.parse(LOAD_V3);
+
+    // metadata sat first among the keys that survive, and was being moved last.
+    expect(Object.keys(raw.actions['1']).indexOf('metadata')).toBeLessThan(
+      Object.keys(raw.actions['1']).indexOf('connection'),
+    );
+    expect(Object.keys(out.actions['1'])).toEqual(['metadata', 'connection', 'actionType', 'actionTypeId']);
+
+    // who, then when, as in the envelope. The reduction used to write when first.
+    expect(Object.keys(out.updateMetadata)).toEqual(['updatedBy', 'updatedAt']);
+  });
 });
 
 // ------------------------------------------------------------------ drops
