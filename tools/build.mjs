@@ -43,6 +43,22 @@ const BUNDLES = [
     sources: [`${CAPTURE}/protocol.js`, `${CAPTURE}/endpoints.js`, `${CAPTURE}/interceptor.js`],
   },
   {
+    // The consent gate: reads the one capture setting and publishes it to the
+    // bridge, which runs straight after it in the same isolated world. Built
+    // outside capture/ on purpose. "The capture scripts never mention
+    // chrome.storage" is a claim about the two files in that directory, and
+    // this is the script that does, so it does not live there.
+    out: 'consent/gate.js',
+    world: 'ISOLATED',
+    capturesFetch: false,
+    sources: [
+      `${OVERLAY}/settings.js`,
+      `${OVERLAY}/settings-store.js`,
+      `${CAPTURE}/protocol.js`,
+      `${CAPTURE}/consent-gate.js`,
+    ],
+  },
+  {
     out: 'capture/bridge.js',
     world: 'ISOLATED',
     capturesFetch: true,
@@ -249,6 +265,17 @@ for (const cs of manifest.content_scripts) {
   if (cs.js.some((file) => CAPTURE_BUNDLES.has(file)) && cs.run_at !== 'document_start') {
     throw new Error(
       'the capture content scripts must run at document_start, or HubSpot captures the original fetch first',
+    );
+  }
+  // The bridge keeps nothing until the consent gate tells it capture is on,
+  // and it finds the gate through a global that only exists if the gate ran
+  // first, in the same entry. Leave it out and the bridge waits for good:
+  // capture is simply dead, with no error anywhere, and that looks exactly
+  // like a user who never switched it on.
+  const bridgeAt = cs.js.indexOf('capture/bridge.js');
+  if (bridgeAt !== -1 && cs.js[bridgeAt - 1] !== 'consent/gate.js') {
+    throw new Error(
+      'capture/bridge.js must be listed immediately after consent/gate.js in the same content script entry',
     );
   }
   for (const file of [...cs.js, ...(cs.css || [])]) {

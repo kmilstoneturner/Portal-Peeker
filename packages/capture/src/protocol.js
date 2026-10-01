@@ -3,15 +3,42 @@
 //
 // Three channels exist:
 //
-//   1. window.postMessage   MAIN-world interceptor  ->  isolated-world bridge
+//   1. window.postMessage   MAIN-world interceptor  <->  isolated-world bridge
 //      The only way across the world boundary. MAIN has no chrome.* at all.
+//      Captures travel one way; whether capture is on at all travels back.
 //   2. chrome.runtime       isolated-world bridge   ->  service worker
 //      Fire and forget, used once per capture to set the per-tab badge.
 //   3. chrome.tabs          popup                   ->  isolated-world bridge
 //      Request/response. The popup owns no state of its own.
+//
+// And one thing that is deliberately not a channel: the consent gate reaches
+// the bridge through a global in the extension's own isolated world. See
+// GATE_GLOBAL below for why that is not a message.
 
 // Namespaced so page scripts posting unrelated messages are cheap to reject.
 export const WINDOW_CHANNEL = 'portal-peeker/v1';
+
+// bridge <-> interceptor: is capture on? The interceptor asks once as it loads
+// and the bridge answers whenever it knows or the answer changes, so the two
+// agree whichever of them Chrome happens to run first.
+//
+// A page script can forge OPEN, since the MAIN world is the page's own. That
+// costs nothing: it only makes the interceptor read a response the page
+// already has, and the bridge, which no page script can reach, still keeps
+// nothing unless the gate itself said yes.
+export const GATE_MSG = {
+  QUERY: 'gate-query',
+  OPEN: 'gate-open',
+  CLOSED: 'gate-closed',
+};
+
+// Where consent-gate.js publishes the capture setting for bridge.js to read.
+// Both run in the extension's isolated world, where a global is shared between
+// this extension's content scripts and invisible to the page, so a page script
+// can neither read it nor forge it. A window message would be both readable
+// and forgeable, which is the wrong property for the one switch that decides
+// whether anything is kept.
+export const GATE_GLOBAL = '__portalPeekerCaptureGate';
 
 // interceptor -> bridge
 export const PAGE_MSG = {
@@ -50,6 +77,10 @@ export const POPUP_MSG = {
 // bridge -> service worker
 export const WORKER_MSG = {
   CAPTURED: 'pp:captured',
+  // Capture was turned off while this tab held a snapshot, and the snapshot
+  // went with it. Without this the check mark would outlive the capture it is
+  // advertising until the next reload.
+  DROPPED: 'pp:dropped',
 };
 
 // Where a snapshot came from. Surfaced in the popup because "saved 2 seconds
@@ -82,6 +113,11 @@ export const REFRESH_ERROR = {
   // snapshot means no URL to repeat, which is a different failure from "no id"
   // with a different remedy: reload the page rather than open a record.
   NO_CAPTURED_URL: 'no-captured-url',
+  // Capture is off in this tab, so a fetch would keep something the user has
+  // not agreed to. The popup shows its notice instead of these buttons, so
+  // this is only reachable in the moment between the setting changing and the
+  // tab hearing about it.
+  CAPTURE_OFF: 'capture-off',
   CSRF_UNREADABLE: 'csrf-unreadable',
   NETWORK: 'network',
   HTTP: 'http',

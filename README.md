@@ -24,6 +24,12 @@ checkboxes, in `chrome.storage.local`, so they stay on this machine: never
 the build fails if either capture script, or the record-page property reader, so much as
 mentions `chrome.storage`.
 
+**Nothing is captured until you turn capture on.** The popup opens on a notice that says
+what will be read, where it stays, and the only way it can leave your computer, and capture
+starts when you press the button there. Until then the capture scripts read no response at
+all. It is the same switch as the first checkbox on the Settings page, and unticking it
+stops capture in every open tab and discards whatever they were holding.
+
 ## What v1 does
 
 - Captures the response of `GET /api/automationplatform/v1/hybrid/{flowId}` on editor load.
@@ -273,6 +279,44 @@ classic envelope, with enrollment in the same place. So they are now read, trimm
 numbered exactly like classic workflows, and the editor numbers were checked against the
 canvas on that flow. What is still unseen is listed under Known limits.
 
+### Capture is off until you turn it on
+
+Until 1.3 the extension captured from the moment it was installed. That was defensible
+while a capture was a workflow definition. A record capture is a person's name and email
+address, and Chrome's disclosure policy asks for an informed yes before a product handles
+user data at all, including data that never leaves the device. So capture is now a setting,
+it ships off, and the popup's Home page is a notice until it is on: what is read, where it
+stays, how it leaves. **Turn on capture** there writes the setting. An update from 1.2
+arrives with it off too, which is the point rather than a cost.
+
+Off means not read, which is a stronger thing than not kept. With capture off the
+interceptor does not clone a matching response, so the page gets back exactly what it would
+with no extension installed, and Refresh, Fetch, and Fetch missing all refuse. Turning it
+off later drops what every open tab was holding, check mark included.
+
+The interesting constraint is who gets to know. The bridge and the interceptor are forbidden
+from mentioning `chrome.storage`, because that grep is how "nothing about a capture is
+persisted" is checked rather than promised, and the setting lives in `chrome.storage`. So a
+third script, `consent-gate.js`, reads that one boolean and publishes it to the bridge
+through a global in the extension's isolated world, where the page can neither see nor forge
+it. The gate registers no window message listener, which is the only way a captured body
+reaches that world, and the build fails if it ever grows one. The script that can touch
+storage cannot see a capture, and the scripts that see captures cannot touch storage.
+
+Two details that were not optional:
+
+- **The first few milliseconds.** The answer comes from an asynchronous read, so at the top
+  of a page load nobody knows it yet. A response landing in that window is held as an
+  unread clone, then read if capture is on or let go still unread if it is off. Without
+  that, someone who had turned capture on would now and then lose a capture on a fast page
+  for no reason they could see. The hold is capped by count and by time, because it runs in
+  a customer's page.
+- **Which check counts.** The interceptor lives in the page's own world, so a page script
+  can tell it anything. That only makes it read a response the page already has. The bridge
+  takes its answer from the gate and keeps nothing without it, and a bridge loaded with no
+  gate at all keeps nothing either. The build refuses a manifest that lists one without the
+  other.
+
 ## Trimming
 
 A captured workflow is mostly not workflow logic. Tick **Trim to workflow logic** and Copy
@@ -423,8 +467,9 @@ portal data, permissions pinned, settings declared), and runs the tests. Then:
 3. Click **Load unpacked**
 4. Select the `extension/dist` folder
 
-Open a HubSpot workflow, segment, or record. A check mark appears on the extension icon once
-something has been captured. Note that the extension only sees requests made after it
+Open the popup and press **Turn on capture**: it ships off. Then open a HubSpot workflow,
+segment, or record. A check mark appears on the extension icon once something has been
+captured. Note that the extension only sees requests made after it
 loads, so a tab that was already open when you installed needs a reload, or on a workflow
 or segment the popup's Fetch button, which pulls the definition on demand.
 
@@ -453,7 +498,8 @@ run `chrome.runtime.getManifest().version` in its console. If that does not matc
 
 ```
 packages/core/          summary, trim, html strip, numbers, AI context, span scan. pure.
-packages/capture/       MAIN-world interceptor + isolated-world bridge. shared.
+packages/capture/       MAIN-world interceptor + isolated-world bridge, and the consent
+                        gate that switches them on.
 packages/overlay/       settings table, annotations drawn on HubSpot's own pages, and
                         the MAIN-world reader for the one response they need.
 extension/              manifest, popup. hubspot.com only. no network.
@@ -495,6 +541,12 @@ side has to ignore the other's traffic. The build asserts that no MAIN bundle co
 `chrome.` reference in code.
 
 Neither pair can be merged.
+
+A fifth script sits beside the bridge in the isolated world and is deliberately not part of
+either pair: `packages/capture/src/consent-gate.js`, which reads whether capture is on and
+tells the bridge. It is built to `consent/gate.js`, outside `capture/`, because "the capture
+scripts never mention `chrome.storage`" is a claim about the two files in that directory and
+this is the script that does. See "Capture is off until you turn it on" above.
 
 ## Fixtures and portal data
 

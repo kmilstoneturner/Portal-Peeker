@@ -1,16 +1,46 @@
 # Portal Peeker privacy policy
 
-Last updated: 2026-08-28. Applies to the Portal Peeker Chrome extension, all versions.
+Last updated: 2026-10-01. Applies to the Portal Peeker Chrome extension, all versions.
 
 ## The short version
 
-Portal Peeker reads the JSON that HubSpot's workflow editor, lists (segments) tool, and CRM
-record pages exchange with HubSpot's own API, holds it in the memory of the tab you are
-looking at, and shows you what is in it. If you switch on the API names setting, it also
-reads your portal's property configuration from responses HubSpot's own record page already
-fetched. It does not send any of that anywhere. There is no server, no account, no
-telemetry, and no analytics. The developer cannot see your workflows, segments, or records,
-and there is no mechanism by which they could.
+Portal Peeker ships with both of its features off. Capture stays off until you turn it on
+from a notice in the popup, and until then it reads no workflow, segment, or record.
+
+Once you have turned capture on, it reads the JSON that HubSpot's workflow editor, lists
+(segments) tool, and CRM record pages exchange with HubSpot's own API, holds it in the
+memory of the tab you are looking at, and shows you what is in it. If you switch on the API
+names setting, it also reads your portal's property configuration from responses HubSpot's
+own record page already fetched. It does not send any of that anywhere. There is no server,
+no account, no telemetry, and no analytics. The developer cannot see your workflows,
+segments, or records, and there is no mechanism by which they could.
+
+## Nothing is captured until you turn capture on
+
+The first time you open the popup, and again after an update from a version that captured
+without asking, its Home page shows a notice instead of anything else. It says what will be
+read, where that stays, and the only way it can leave your computer. Capture starts when you
+press **Turn on capture** there, and not before.
+
+While capture is off:
+
+- No workflow, segment, or record is read. The capture scripts are present on HubSpot's
+  workflow, segment, and record pages, because they have to be there already when you do
+  turn capture on, but they do not copy, read, or keep anything HubSpot's page loads.
+- Refresh, Fetch from HubSpot, and Fetch missing are not on offer, and the extension makes
+  no request at all.
+
+One detail, stated because it is true rather than because it matters in practice: for the
+first instant of a page load, before the extension has read your setting, a response that
+arrives is held without being read. With capture off it is let go, still unread.
+
+Your answer is one true or false value in `chrome.storage.local`, alongside the API names
+toggle. You can change it at any time: **Capture workflows, segments, and records** on the
+popup's Settings page is the same switch. Turning it off stops capture in every open tab
+and discards whatever those tabs were holding.
+
+The API names annotation is a separate setting with its own switch, also off until you turn
+it on. Neither turns the other on.
 
 ## What Portal Peeker reads
 
@@ -19,7 +49,9 @@ It runs on five kinds of HubSpot page and nowhere else: `*://*.hubspot.com/workf
 `*://*.hubspot.com/segments/*` (the roots HubSpot's renamed Lists tool uses),
 `*://*.hubspot.com/property-settings/*`, and `*://*.hubspot.com/object-builder/*`, which is
 the frame HubSpot itself draws the create record dialog in. What it does on each is
-different. On the property settings page and in the create record dialog it reads only what
+different, and all of it depends on a setting you have turned on: the capture described
+below happens only while capture is on, and the property reading only while the API names
+setting is. On the property settings page and in the create record dialog it reads only what
 is already in the page's own markup.
 
 `*://*.hubspot.com/contacts/*` is broader than the pages the extension actually uses, which
@@ -106,7 +138,9 @@ In the memory of the content script running in that one browser tab, and nowhere
 - It is **not** written to `chrome.storage`. The extension does now hold one storage
   permission, for the checkbox states described below, so this is no longer something you
   have to take on trust: the build fails if either capture script, or the record-page
-  property reader, so much as mentions `chrome.storage`.
+  property reader, so much as mentions `chrome.storage`. The capture setting itself is read
+  by a separate small script that never sees a response, and the build fails if that script
+  could ever receive one.
 - It is **not** written to disk unless you press Download.
 - It is **not** sent to the extension's developer or to any third party, because the
   extension contains no code that could do so.
@@ -118,9 +152,10 @@ memory of that one tab, is never written to `chrome.storage` or to disk, and goe
 tab does. The build greps that script for `chrome.storage` alongside the two capture scripts.
 
 The only thing Portal Peeker stores between sessions is the state of its checkboxes: the six
-export options, kept in the popup's own `localStorage`, and the Settings page toggles, kept in
-`chrome.storage.local`. That is a handful of true/false values. It contains nothing about any
-workflow, portal, or person, and no property name, label, or id ever reaches either store.
+export options, kept in the popup's own `localStorage`, and the two Settings page toggles
+(capture, and the API names annotation), kept in `chrome.storage.local`. That is a handful
+of true/false values. It contains nothing about any workflow, portal, or person, and no
+property name, label, or id ever reaches either store.
 
 The Settings toggles are in `chrome.storage` rather than alongside the others for one reason:
 they are obeyed by a script running on hubspot.com, which is a different origin and cannot
@@ -130,7 +165,8 @@ so they stay on this machine. A build check enforces both the area and the exact
 ## What leaves your computer
 
 Requests to HubSpot's own API, on the HubSpot origin you are already signed in to, and
-only when you ask for them by pressing a button:
+only when you ask for them by pressing a button. None of these buttons exists while capture
+is off:
 
 - **Refresh**, or **Fetch from HubSpot** on the empty state, sends one `GET` to fetch the
   last saved state of the workflow, segment, or record you are looking at. It is the same
@@ -185,8 +221,8 @@ on CRM record pages under `*://*.hubspot.com/contacts/*`, and in the create reco
 (which HubSpot draws in its own frame under `*://*.hubspot.com/object-builder/*`), Portal
 Peeker adds each property's internal name underneath its label.
 
-**Portal Peeker makes no request of its own on any of these pages.** For most properties the
-name is already on the page: HubSpot renders it into the page's own HTML attributes, and the
+**The annotation makes no request of its own.** For most properties the name is already on
+the page: HubSpot renders it into the page's own HTML attributes, and the
 extension reads what is in front of you and displays it more legibly. The create record
 dialog is read entirely this way. Nothing is stored or transmitted, and the only thing saved
 anywhere is whether the checkbox is ticked.
@@ -197,8 +233,9 @@ For those, and only when this setting is on, the label is matched against the pr
 HubSpot's own page already fetched, as described under "What Portal Peeker reads" above. That list is portal configuration, not
 record data, and it is held in memory only until the tab closes.
 
-The extension reads property names, property labels and the record's object type. It does not
-read, store, or transmit the record's values, and it makes no use of whose record it is.
+The annotation reads property names, property labels and the record's object type. It does
+not read, store, or transmit the record's values, and it makes no use of whose record it is.
+Capturing a record is a different feature with its own switch, described next.
 
 The change is display only and it is undone the moment you untick the box or leave the page.
 Portal Peeker only ever adds elements of its own here: it does not remove, move, or alter
@@ -208,7 +245,8 @@ This setting is off until you turn it on.
 
 ## Capturing CRM records
 
-Opening a CRM record page captures it, the same way opening a workflow or a segment does.
+With capture on, opening a CRM record page captures it, the same way opening a workflow or
+a segment does.
 What is captured is the batch response described under "What Portal Peeker reads": one JSON
 document holding that record's property values and object metadata. This is record data in
 the fullest sense, and on a contact it is personal data.
@@ -232,6 +270,7 @@ more: the values it keeps are exactly the personal data.
 
 ## What Portal Peeker never does
 
+- It never reads a workflow, segment, or record before you have turned capture on.
 - It never sends your data to the developer or to any third party.
 - It never uses analytics, telemetry, crash reporting, or advertising of any kind.
 - It never sells or transfers your data. There is no data flow in which it could.

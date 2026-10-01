@@ -137,6 +137,44 @@ body {
   text-transform: lowercase;
 }
 
+/* The capture notice. Left aligned and at body size, unlike the empty state
+   beside it: this is a few sentences someone is being asked to read before
+   they agree to something, not a one-line hint. */
+.consent {
+  padding: 16px var(--gutter) 4px;
+}
+
+.consent p {
+  margin: 0 0 8px;
+}
+
+.consent .consent-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+/* The shared .actions padding assumes the capture card's gutters, which this
+   section already supplies. Two classes, because .actions is declared further
+   down and would otherwise win on source order. The button keeps its own
+   width, same reasoning as the empty state's: an offer, not a form. */
+.consent .consent-actions {
+  padding: 6px 0 10px;
+}
+
+.consent .consent-actions .btn {
+  flex: 0 1 auto;
+  padding: 7px 18px;
+}
+
+.consent .consent-foot {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.consent .status {
+  margin: 0;
+}
+
 .empty {
   padding: 22px 14px;
   text-align: center;
