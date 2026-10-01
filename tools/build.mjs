@@ -208,6 +208,18 @@ if (JSON.stringify(manifest.host_permissions) !== JSON.stringify(['*://*.hubspot
   throw new Error('host_permissions must be exactly ["*://*.hubspot.com/*"]');
 }
 
+// The Chrome Web Store refuses an upload whose manifest description runs past
+// 132 characters, and it says so only at upload, after the merge and the zip.
+// Chrome itself loads a longer one without complaint, so nothing before the
+// store ever notices. 1.3.0 reached 143 by naming two more capture types.
+const DESCRIPTION_LIMIT = 132;
+const description = typeof manifest.description === 'string' ? manifest.description : '';
+if (description.length === 0 || description.length > DESCRIPTION_LIMIT) {
+  throw new Error(
+    `manifest description is ${description.length} characters; the Chrome Web Store allows 1 to ${DESCRIPTION_LIMIT}`,
+  );
+}
+
 const worlds = manifest.content_scripts.map((cs) => cs.world);
 if (!worlds.includes('MAIN') || !worlds.includes('ISOLATED')) {
   throw new Error('the extension needs one MAIN-world and one ISOLATED-world content script');

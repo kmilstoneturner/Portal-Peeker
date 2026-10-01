@@ -9,11 +9,13 @@ behind a CRM record as you open its page, and lets you copy or download those ex
 
 
 **The extension talks to no host but HubSpot.** No telemetry, no analytics, no error
-reporting, no third party of any kind. The only requests it ever makes are Refresh and
-Fetch refetching the workflow, segment, or record from HubSpot's own API, on a click, and
-nothing else it does leaves your machine. `host_permissions` is `*://*.hubspot.com/*` and nothing
-else, which you can verify yourself in `chrome://extensions`. CI fails the build on any
-absolute URL to a non-HubSpot host in the bundle.
+reporting, no third party of any kind. The only requests it ever makes are the ones you ask
+for with a button, all to HubSpot's own API: Refresh, and Fetch from HubSpot on an empty
+popup, refetch what you are looking at, and Fetch missing fetches the definitions of lists
+a segment references. Nothing else it does leaves your machine. `host_permissions` is
+`*://*.hubspot.com/*` and nothing else, which you can verify yourself in
+`chrome://extensions`. CI fails the build on any absolute URL to a non-HubSpot host in the
+bundle.
 
 `permissions` is `["storage"]` and nothing else. It holds the state of the Settings page
 checkboxes, in `chrome.storage.local`, so they stay on this machine: never
@@ -79,8 +81,8 @@ attributes and simply does not display it, so this reads what is in front of you
 legible. It is display only, it is undone the moment you untick the box, and it is off until
 you turn it on.
 
-**Portal Peeker still makes no request of its own.** Where a name is not in the page at all,
-it reads a reply HubSpot's page already received. See below, and PRIVACY.md.
+**The annotation makes no request of its own.** Where a name is not in the page at all, it
+reads a reply HubSpot's page already received. See below, and PRIVACY.md.
 
 The honest limit: this reads an internal HubSpot UI with no version and no stability promise.
 The name has to identify itself before it is shown, so when HubSpot changes its markup **the
@@ -115,8 +117,8 @@ for. See the privacy note above.
 
 ## What v1.3 adds
 
-**Segment (list) capture.** Open a segment — HubSpot's renamed Lists tool, at
-`/contacts/{portalId}/objectLists/{listId}` — and Portal Peeker captures the response of
+**Segment (list) capture.** Open a segment (HubSpot's renamed Lists tool, at
+`/contacts/{portalId}/objectLists/{listId}`) and Portal Peeker captures the response of
 `GET /api/inbounddb-lists/v1/lists/{listId}`: the full definition, `filterBranch` tree
 included. That tree is the answer to "what is this segment actually filtering against",
 which is the reason the feature exists.
@@ -128,7 +130,7 @@ exactly as they do for workflows, byte-identical with everything off, and the fi
 `YYYY-MM-DD-list-{listId}.json` so a segment export never masquerades as a flow.
 
 **Fetch from HubSpot.** When the popup opens on a workflow or segment page with nothing
-captured — you installed after the page loaded, or the SPA navigated without refetching —
+captured (you installed after the page loaded, or the SPA navigated without refetching),
 the empty state offers a Fetch button. It is the Refresh mechanism with different copy: one
 user-initiated same-origin GET to HubSpot's own API, cookies and CSRF header riding along,
 nothing else.
@@ -152,14 +154,14 @@ URL names the subject, and only the subject's definition is the capture.
 
 ### Include referenced lists
 
-A segment names the lists it depends on — `IN_LIST` filters, association branches,
-suppression settings — by id only, so a bare export answers "what is it filtering against"
+A segment names the lists it depends on (`IN_LIST` filters, association branches,
+suppression settings) by id only, so a bare export answers "what is it filtering against"
 one hop deep and then stops. But HubSpot's own page already fetches the missing hop:
 alongside the definition it loads `getBatch` (an array of full definitions for every
 referenced list), the `/suppression` settings, and the membership counts.
 
-Portal Peeker now keeps those responses **beside** the capture — never in its place, tied
-to the segment the page URL names, discarded when you move to another list — and a new
+Portal Peeker now keeps those responses **beside** the capture (never in its place, tied
+to the segment the page URL names, discarded when you move to another list), and a new
 checkbox splices them into the export as one `_related` key:
 
 ```
@@ -177,7 +179,7 @@ The popup's **Referenced** row shows coverage before you export: "38 lists (38 c
 means every definition your filters point to rode along. When the count falls short, a
 **Fetch missing** button sits beside it, and it exists because of a gap in what the page
 itself loads: filter references arrive with full definitions through `getBatch`, but
-**suppression lists never do** — the page resolves their names through a generic CRM
+**suppression lists never do**: the page resolves their names through a generic CRM
 search (which carries no filter logic, and which the extension deliberately does not
 capture, since the same URL serves the members table's actual record rows). Fetch missing
 closes the gap directly: one user-initiated GET per missing list, through the same
@@ -261,6 +263,15 @@ observed and declines everything else.
 
 Files carry a `-values` suffix. Like the workflow trim it is a size feature, not
 redaction: the values it keeps are exactly the sensitive part.
+
+### Platform workflows
+
+Some workflows come back marked `isClassicWorkflow: false`. Until one was captured they
+opened with a "shape not fully recognized" banner and no trim, on the expectation that
+their JSON would be laid out differently. The first one captured is laid out the same: the
+classic envelope, with enrollment in the same place. So they are now read, trimmed, and
+numbered exactly like classic workflows, and the editor numbers were checked against the
+canvas on that flow. What is still unseen is listed under Known limits.
 
 ## Trimming
 
@@ -412,10 +423,10 @@ portal data, permissions pinned, settings declared), and runs the tests. Then:
 3. Click **Load unpacked**
 4. Select the `extension/dist` folder
 
-Open a HubSpot workflow or segment. A check mark appears on the extension icon once
+Open a HubSpot workflow, segment, or record. A check mark appears on the extension icon once
 something has been captured. Note that the extension only sees requests made after it
-loads, so a tab that was already open when you installed needs a reload — or the popup's
-Fetch button, which pulls the definition on demand.
+loads, so a tab that was already open when you installed needs a reload, or on a workflow
+or segment the popup's Fetch button, which pulls the definition on demand.
 
 ### After rebuilding, reload two things
 
@@ -488,11 +499,13 @@ Neither pair can be merged.
 ## Fixtures and portal data
 
 Fixtures live in [`packages/core/__fixtures__/`](packages/core/__fixtures__/README.md), and
-**everything committed there is synthetic.** Three of them are scrubbed copies of real
-captures: structure, key order, and HubSpot vocabulary exactly as returned, with every
-identifier and every piece of authored content replaced. The other two are entirely
-hand-authored: one exercises the cases where a trim rule must *not* fire, the other is built
-so that every wrong graph traversal produces a different set of editor numbers.
+**everything committed there is synthetic.** Most are scrubbed copies of real captures:
+structure, key order, and HubSpot vocabulary exactly as returned, with every identifier and
+every piece of authored content replaced. The files named `.synthetic` are hand-authored,
+each for a case no committable capture carries: where a trim rule must *not* fire, a graph
+on which every wrong traversal produces different editor numbers, a literal duplicate key,
+and the platform-flow shape, whose only capture came from a client portal. The fixtures
+README lists them all.
 
 Two rules, both enforced rather than remembered:
 
@@ -517,7 +530,7 @@ pointing at documents.
 - The segment endpoint was observed live from segments-ui in August 2026, on the details
   and filters pages. How a segment **save** travels has not been captured yet: a write to
   the same path is captured as a save, and if HubSpot saves through some other path, the
-  capture simply stays on the last load — Refresh after saving returns the saved state
+  capture simply stays on the last load. Refresh after saving returns the saved state
   either way.
 - On the newer `/lists/{portalId}/{listId}` and `/segments/{portalId}/{listId}` URL
   roots, the number after the portal is read as the list ID provisionally: unlike the
