@@ -90,6 +90,9 @@ you turn it on.
 **The annotation makes no request of its own.** Where a name is not in the page at all, it
 reads a reply HubSpot's page already received. See below, and PRIVACY.md.
 
+**It does not need capture, and it is not capture.** The two are separate switches. API
+names can be shown with capture off, and showing them keeps no workflow, segment, or record.
+
 The honest limit: this reads an internal HubSpot UI with no version and no stability promise.
 The name has to identify itself before it is shown, so when HubSpot changes its markup **the
 annotation disappears rather than showing you the wrong name**. Anything it cannot read with
@@ -101,7 +104,9 @@ different way, and two gaps are permanent.
 **Contact profile, Data highlights, and Property history work differently.** HubSpot puts no
 internal name in the page for those, only the label. So the label is matched against your
 portal's property list, which HubSpot's own page already fetched while loading. The extension
-reads that reply rather than asking for it, and only if you have the setting switched on.
+reads that reply rather than asking for it, and receives it only if you have the setting
+switched on. Until then a copy sits in the page's own memory, where the page already has it,
+and goes nowhere.
 
 A label matching no property, or matching two, leaves the row unannotated. That is the same
 rule as everywhere else here: a blank is fine, a wrong name is not.
